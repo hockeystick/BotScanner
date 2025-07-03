@@ -1,9 +1,9 @@
 // PASTE THIS ENTIRE CODE BLOCK INTO: app/page.tsx
 
-'use client';
+'use client'; // <-- THIS IS THE CRUCIAL LINE THAT MAKES THE PAGE INTERACTIVE
 
 import React, { useState, useCallback } from 'react';
-import { Upload, Play, BarChart3, AlertCircle, CheckCircle, Globe, Building, Link as LinkIcon } from 'lucide-react';
+import { Upload, Play, BarChart3, AlertCircle, CheckCircle, Globe, Link as LinkIcon } from 'lucide-react';
 
 // Define types for our data structures
 type SiteData = { [key: string]: string };
@@ -361,7 +361,6 @@ const BotScannerPage = () => {
         </div>
       )}
 
-      {/* --- THIS IS THE RESTORED DETAILED RESULTS TABLE --- */}
       {results.length > 0 && !analyzing && (
         <div className="mt-12">
             <h2 className="text-2xl font-bold text-gray-900 mb-4 pb-2 border-b">Detailed Results by Outlet</h2>
