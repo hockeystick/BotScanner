@@ -2,14 +2,15 @@
 
 'use client';
 
-import React, { useState, useCallback, useMemo } from 'react';
-import { Upload, Play, BarChart3, Shield, CheckCircle, Globe, Link as LinkIcon, Zap, FileText, Search } from 'lucide-react';
+import React, { useState, useCallback } from 'react';
+import { Upload, Play, FileText, Zap, Globe, Link as LinkIcon, Shield, CheckCircle, BarChart3, Bot, Target } from 'lucide-react';
 
 // --- TYPE DEFINITIONS ---
 type SiteData = { [key: string]: string };
 type AnalysisResult = {
   country: string; outlet: string; robotsExists: boolean; blocksAI: boolean; aiBotsBlockedCount: number; blockingStrategy: string;
-  blockedBotsList: string[]; fetchUrl?: string;
+  blockedBotsList: string[]; fetchUrl?: string; hasNoAIMetaTag: boolean; hasNoImageAIMetaTag: boolean;
+  hasXRobotsNoAI: boolean; hasXRobotsNoImageAI: boolean; protectionScore: number; homepageUrl?: string; homepageChecked: boolean;
 };
 
 // --- MAIN COMPONENT ---
@@ -29,10 +30,10 @@ const BotScannerPage = () => {
   const [countryStats, setCountryStats] = useState<any[]>([]);
 
   // --- DATA & CONFIGURATION ---
-  const AI_BOTS: { [key: string]: { owner: string; category: string } } = {
-    'GPTBot': { owner: 'OpenAI', category: 'Major AI' }, 'ChatGPT-User': { owner: 'OpenAI', category: 'Major AI' }, 'Google-Extended': { owner: 'Google', category: 'Major AI' }, 'anthropic-ai': { owner: 'Anthropic', category: 'Major AI' }, 'ClaudeBot': { owner: 'Anthropic', category: 'Major AI' }, 'Claude-Web': { owner: 'Anthropic', category: 'Major AI' },
-    'PerplexityBot': { owner: 'Perplexity', category: 'Search' }, 'YouBot': { owner: 'You.com', category: 'Search' },
-    'Bytespider': { owner: 'ByteDance', category: 'Web Crawler' }, 'CCBot': { owner: 'Common Crawl', category: 'Web Crawler' }, 'AhrefsBot': { owner: 'Ahrefs', category: 'SEO' }, 'Applebot': { owner: 'Apple', category: 'Web Crawler' }, 'Applebot-Extended': { owner: 'Apple', category: 'Web Crawler' }, 'Amazonbot': { owner: 'Amazon', category: 'Web Crawler' },
+  const AI_BOTS: { [key: string]: string } = {
+    'GPTBot': 'OpenAI', 'ChatGPT-User': 'OpenAI', 'Google-Extended': 'Google', 'anthropic-ai': 'Anthropic', 'ClaudeBot': 'Anthropic', 'Claude-Web': 'Anthropic',
+    'PerplexityBot': 'Perplexity', 'YouBot': 'You.com', 'Bytespider': 'ByteDance', 'CCBot': 'Common Crawl', 'AhrefsBot': 'Ahrefs', 
+    'Applebot': 'Apple', 'Applebot-Extended': 'Apple', 'Amazonbot': 'Amazon',
   };
   
   const strategyColors: { [key: string]: string } = {
@@ -72,10 +73,13 @@ const BotScannerPage = () => {
     reader.readAsText(file);
   }, []);
 
-  const fetchWithProxy = async (url: string) => {
-    const proxyUrl = `/api/fetch-robots?url=${encodeURIComponent(url)}&type=robots`;
+  const fetchWithProxy = async (url: string, type: 'robots' | 'page') => {
+    const proxyUrl = `/api/fetch-robots?url=${encodeURIComponent(url)}&type=${type}`;
     const response = await fetch(proxyUrl);
-    if (!response.ok) throw new Error(response.statusText);
+    if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+    }
     return response.json();
   };
 
@@ -87,18 +91,26 @@ const BotScannerPage = () => {
       const baseUrl = `${urlObject.protocol}//${urlObject.hostname}`;
 
       let analysis: Partial<AnalysisResult> & { outlet: string; country: string } = {
-          outlet: site['Outlet'] || urlObject.hostname,
-          country: site['Country'] || 'N/A',
+          outlet: site['Outlet'] || urlObject.hostname, country: site['Country'] || 'N/A',
       };
 
       try {
-        const robotsData = await fetchWithProxy(`${baseUrl}/robots.txt`);
+        const robotsData = await fetchWithProxy(`${baseUrl}/robots.txt`, 'robots');
         analysis = { ...analysis, ...parseRobotsTxt(robotsData.content), fetchUrl: `${baseUrl}/robots.txt` };
       } catch {
         analysis = { ...analysis, robotsExists: false, blocksAI: false, aiBotsBlockedCount: 0, blockingStrategy: 'None', blockedBotsList: [] };
       }
+
+      try {
+        const pageData = await fetchWithProxy(baseUrl, 'page');
+        analysis = { ...analysis, ...parseMetaAndHeaders(pageData), homepageUrl: baseUrl, homepageChecked: true };
+      } catch {
+        analysis = { ...analysis, hasNoAIMetaTag: false, hasNoImageAIMetaTag: false, hasXRobotsNoAI: false, hasXRobotsNoImageAI: false, homepageChecked: false };
+      }
+
+      analysis.protectionScore = calculateProtectionScore(analysis as Omit<AnalysisResult, 'protectionScore'>);
       return analysis as AnalysisResult;
-    } catch { return null; }
+    } catch(e) { console.error(`Analysis failed for ${site['Outlet']}`, e); return null; }
   };
   
   const analyzeAllSites = async () => {
@@ -108,11 +120,10 @@ const BotScannerPage = () => {
         const result = await performFullAnalysis(sites[i]);
         if(result) analysisResults.push(result);
         setProgress(((i + 1) / sites.length) * 100);
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await new Promise(resolve => setTimeout(resolve, 150));
     }
     setResults(analysisResults);
-    generateSummary(analysisResults);
-    generateCountryStats(analysisResults);
+    generateSummaryAndStats(analysisResults);
     setAnalyzing(false);
   };
   
@@ -120,14 +131,10 @@ const BotScannerPage = () => {
     if (!singleDomain.trim()) return;
     setAnalyzingSingle(true); setSingleResult(null);
     try {
-        let domain = singleDomain.trim();
-        const result = await performFullAnalysis({ 'Outlet': domain, 'Country': 'N/A', 'Robots.txt': domain });
+        const result = await performFullAnalysis({ 'Outlet': singleDomain.trim(), 'Country': 'N/A', 'Robots.txt': singleDomain.trim() });
         setSingleResult(result);
-    } catch (e) {
-      console.error("Analysis failed", e);
-    } finally {
-      setAnalyzingSingle(false);
-    }
+    } catch (e) { console.error("Single analysis failed", e); }
+    finally { setAnalyzingSingle(false); }
   };
 
   const parseRobotsTxt = (content: string) => {
@@ -137,10 +144,8 @@ const BotScannerPage = () => {
         const trimmed = line.trim(); const lower = trimmed.toLowerCase();
         if (!trimmed || lower.startsWith('#')) return;
         if (lower.startsWith('user-agent:')) currentAgent = trimmed.substring(11).trim();
-        else if (lower.startsWith('disallow:') && currentAgent) {
-            if (trimmed.substring(9).trim() === '/') {
-                Object.keys(AI_BOTS).forEach(bot => { if (currentAgent === '*' || currentAgent!.toLowerCase() === bot.toLowerCase()) blockedBots.add(bot); });
-            }
+        else if (lower.startsWith('disallow:') && currentAgent && trimmed.substring(9).trim() === '/') {
+            Object.keys(AI_BOTS).forEach(bot => { if (currentAgent === '*' || currentAgent!.toLowerCase() === bot.toLowerCase()) blockedBots.add(bot); });
         }
     });
     const count = blockedBots.size;
@@ -150,8 +155,32 @@ const BotScannerPage = () => {
     return { robotsExists: true, blocksAI: count > 0, aiBotsBlockedCount: count, blockingStrategy: strategy, blockedBotsList: Array.from(blockedBots).sort() };
   };
 
-  const generateSummary = (data: AnalysisResult[]) => {
+  const parseMetaAndHeaders = (pageData: { content: string, headers: Record<string, string>}) => {
+    let hasNoAI = false, hasNoImageAI = false;
+    const metaRegex = /<meta\s+name=["']robots["']\s+content=["']([^"']+)["']/gi; let match;
+    while((match = metaRegex.exec(pageData.content)) !== null) {
+      const content = match[1].toLowerCase();
+      if(content.includes('noai')) hasNoAI = true; if(content.includes('noimageai')) hasNoImageAI = true;
+    }
+
+    let hasXRobotsNoAI = false, hasXRobotsNoImageAI = false;
+    const tag = pageData.headers['x-robots-tag'] || pageData.headers['X-Robots-Tag'];
+    if(tag) { const lower = tag.toLowerCase(); if(lower.includes('noai')) hasXRobotsNoAI = true; if(lower.includes('noimageai')) hasXRobotsNoImageAI = true; }
+
+    return { hasNoAIMetaTag: hasNoAI, hasNoImageAIMetaTag: hasNoImageAI, hasXRobotsNoAI, hasXRobotsNoImageAI };
+  }
+  
+  const calculateProtectionScore = (a: Omit<AnalysisResult, 'protectionScore'>) => {
+    let score = a.aiBotsBlockedCount * 0.5;
+    if(a.hasNoAIMetaTag) score += 4; if(a.hasNoImageAIMetaTag) score += 2;
+    if(a.hasXRobotsNoAI) score += 5; if(a.hasXRobotsNoImageAI) score += 3;
+    if(a.blocksAI && (a.hasNoAIMetaTag || a.hasXRobotsNoAI)) score += 3;
+    return Math.round(score);
+  };
+
+  const generateSummaryAndStats = (data: AnalysisResult[]) => {
     const total = data.length; if (total === 0) return;
+    // Summary
     const sitesWithRobots = data.filter(d => d.robotsExists).length;
     const sitesBlockingAI = data.filter(d => d.blocksAI).length;
     const botCounts: { [key: string]: number } = {};
@@ -165,11 +194,11 @@ const BotScannerPage = () => {
       percentageWithRobots: (sitesWithRobots/total*100).toFixed(1),
       percentageBlockingAI: (sitesBlockingAI/total*100).toFixed(1)
     });
-  };
 
-  const generateCountryStats = (data: AnalysisResult[]) => {
+    // Country Stats
     const countryData: Record<string, { total: number; hasRobots: number; blocksAI: number; strategies: Record<string, number> }> = {};
     data.forEach(d => {
+        if (!d.country || d.country === 'N/A') return;
         if (!countryData[d.country]) countryData[d.country] = { total: 0, hasRobots: 0, blocksAI: 0, strategies: {} };
         const country = countryData[d.country];
         country.total++; if (d.robotsExists) country.hasRobots++; if (d.blocksAI) country.blocksAI++;
@@ -179,7 +208,7 @@ const BotScannerPage = () => {
         country, total: d.total, hasRobots: d.hasRobots, blocksAI: d.blocksAI,
         robotsPercentage: (d.hasRobots/d.total*100).toFixed(1), aiBlockingPercentage: (d.blocksAI/d.total*100).toFixed(1),
         mostCommonStrategy: Object.keys(d.strategies).length ? Object.entries(d.strategies).sort((a,b)=>b[1]-a[1])[0][0] : 'None'
-    })).sort((a,b) => b.blocksAI - a.blocksAI);
+    })).sort((a,b) => b.blocksAI / b.total - a.blocksAI / a.total);
     setCountryStats(stats);
   };
   
@@ -192,7 +221,6 @@ const BotScannerPage = () => {
           <p className="text-xl text-gray-600">AI Web Crawler Protection Analysis</p>
         </header>
 
-        {/* --- Mode Toggle --- */}
         <nav className="mb-10 flex justify-center">
             <div className="bg-gray-200/80 rounded-xl p-1.5 shadow-inner">
                 <div className="flex gap-1">
@@ -213,7 +241,7 @@ const BotScannerPage = () => {
           <section className="space-y-12">
             <div className="bg-white p-8 rounded-2xl shadow-lg border border-gray-200/80">
               <div className="flex flex-col md:flex-row items-center gap-8">
-                <div className="text-center">
+                <div className="text-center flex-shrink-0">
                   <Upload className="mx-auto text-blue-500 mb-4" size={48} />
                   <label className="cursor-pointer">
                     <span className="bg-blue-600 text-white px-8 py-3 rounded-xl font-semibold shadow-md hover:bg-blue-700 transition-all duration-300 transform hover:scale-105">
@@ -242,7 +270,7 @@ const BotScannerPage = () => {
                       { icon: Globe, label: 'Total Outlets', value: summary.total, color: 'blue' },
                       { icon: FileText, label: 'Has robots.txt', value: summary.sitesWithRobots, sub: `${summary.percentageWithRobots}%`, color: 'green' },
                       { icon: Shield, label: 'Blocks AI', value: summary.sitesBlockingAI, sub: `${summary.percentageBlockingAI}%`, color: 'red' },
-                      { icon: Zap, label: 'Most Common Strategy', value: summary.mostCommonStrategy, color: 'purple' },
+                      { icon: Zap, label: 'Most Common', value: summary.mostCommonStrategy, color: 'purple' },
                     ].map(s => (
                       <div key={s.label} className={`bg-${s.color}-50 border-l-4 border-${s.color}-500 p-5 rounded-r-lg`}>
                         <div className={`flex items-center gap-2 mb-1 text-sm font-semibold text-${s.color}-800`}><s.icon className="w-5 h-5" />{s.label}</div>
@@ -260,13 +288,15 @@ const BotScannerPage = () => {
                   </div>
                 </div>
                 
-                <div className="bg-white rounded-2xl shadow-lg border border-gray-200/80 overflow-hidden">
-                  <h2 className="text-2xl font-bold text-gray-900 p-6">Analysis by Country</h2>
-                  <div className="overflow-x-auto"><table className="w-full text-sm">
-                    <thead className="bg-gray-50"><tr>{['Country', 'Total Outlets', 'Has Robots.txt', 'Blocks AI (%)', 'Most Common Strategy'].map(h => <th key={h} className="px-6 py-4 text-left font-bold text-gray-600 uppercase tracking-wider">{h}</th>)}</tr></thead>
-                    <tbody className="divide-y divide-gray-200">{countryStats.map((s) => (<tr key={s.country} className="hover:bg-gray-50"><td className="px-6 py-4 font-medium text-gray-900 flex items-center gap-2"><Globe size={16} className="text-gray-400"/>{s.country}</td><td className="px-6 py-4">{s.total}</td><td className="px-6 py-4">{s.hasRobots} ({s.robotsPercentage}%)</td><td className="px-6 py-4"><div className="flex items-center gap-3"><span>{s.blocksAI} ({s.aiBlockingPercentage}%)</span><div className="w-24 bg-gray-200 rounded-full h-2"><div className="bg-red-500 h-2 rounded-full" style={{width: `${s.aiBlockingPercentage}%`}}></div></div></div></td><td className="px-6 py-4">{s.mostCommonStrategy}</td></tr>))}</tbody>
-                  </table></div>
-                </div>
+                {countryStats.length > 0 &&
+                  <div className="bg-white rounded-2xl shadow-lg border border-gray-200/80 overflow-hidden">
+                    <h2 className="text-2xl font-bold text-gray-900 p-6">Analysis by Country</h2>
+                    <div className="overflow-x-auto"><table className="w-full text-sm">
+                      <thead className="bg-gray-50"><tr>{['Country', 'Total Outlets', 'Has Robots.txt', 'Blocks AI (%)', 'Most Common Strategy'].map(h => <th key={h} className="px-6 py-4 text-left font-bold text-gray-600 uppercase tracking-wider">{h}</th>)}</tr></thead>
+                      <tbody className="divide-y divide-gray-200">{countryStats.map((s) => (<tr key={s.country} className="hover:bg-gray-50"><td className="px-6 py-4 font-medium text-gray-900 flex items-center gap-2"><Globe size={16} className="text-gray-400"/>{s.country}</td><td className="px-6 py-4">{s.total}</td><td className="px-6 py-4">{s.hasRobots} ({s.robotsPercentage}%)</td><td className="px-6 py-4"><div className="flex items-center gap-3"><span>{s.blocksAI} ({s.aiBlockingPercentage}%)</span><div className="w-24 bg-gray-200 rounded-full h-2"><div className="bg-red-500 h-2 rounded-full" style={{width: `${s.aiBlockingPercentage}%`}}></div></div></div></td><td className="px-6 py-4">{s.mostCommonStrategy}</td></tr>))}</tbody>
+                    </table></div>
+                  </div>
+                }
                 
                 <div className="bg-white rounded-2xl shadow-lg border border-gray-200/80 overflow-hidden">
                   <h2 className="text-2xl font-bold text-gray-900 p-6">Detailed Results by Outlet</h2>
