@@ -82,9 +82,29 @@ const BotScannerPage = () => {
     'omgili': { owner: 'Omgili', category: 'Generic' },
   };
 
+  // --- THIS IS THE CORRECTED, ROBUST CSV PARSER ---
   const parseCSVLine = (line: string): string[] => {
-    // This is a simplified CSV parser
-    return line.split(',').map(field => field.trim());
+    const result: string[] = [];
+    let current = '';
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      const char = line[i];
+      if (char === '"') {
+        if (inQuotes && line[i + 1] === '"') {
+          current += '"';
+          i++; // Skip the next quote
+        } else {
+          inQuotes = !inQuotes;
+        }
+      } else if (char === ',' && !inQuotes) {
+        result.push(current);
+        current = '';
+      } else {
+        current += char;
+      }
+    }
+    result.push(current);
+    return result;
   };
 
   const handleFileUpload = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
@@ -165,12 +185,14 @@ const BotScannerPage = () => {
         currentAgent = trimmedLine.substring(11).trim();
       } else if (lowerLine.startsWith('disallow:') && currentAgent) {
         const path = trimmedLine.substring(9).trim();
+        // Check for blocking all AI bots or specific ones
         if (path === '/') {
-          Object.keys(AI_BOTS).forEach(bot => {
-            if (currentAgent === '*' || currentAgent!.toLowerCase() === bot.toLowerCase()) {
-              blockedBots.add(bot);
-            }
-          });
+            Object.keys(AI_BOTS).forEach(bot => {
+                // The '!' is safe here because of the `&& currentAgent` check above.
+                if (currentAgent === '*' || currentAgent!.toLowerCase() === bot.toLowerCase()) {
+                  blockedBots.add(bot);
+                }
+            });
         }
       } else if (lowerLine.startsWith('sitemap:')) {
         hasSitemaps = true;
@@ -236,12 +258,10 @@ const BotScannerPage = () => {
       d.blockedBotsList.forEach(botName => {
         const botInfo = AI_BOTS[botName];
         if (botInfo) {
-          // Count for Top 10 list
           if (!botCounts[botName]) {
             botCounts[botName] = { count: 0, owner: botInfo.owner, category: botInfo.category };
           }
           botCounts[botName].count++;
-          // Count for category breakdown
           siteCategories.add(botInfo.category);
         }
       });
