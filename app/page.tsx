@@ -41,6 +41,9 @@ type AnalysisResult = {
   metaTagsFound: string[];
   xRobotsTagsFound: string[];
   protectionScore: number;
+  // URLs for transparency
+  homepageUrl?: string;
+  homepageChecked: boolean;
 };
 
 const BotScannerPage = () => {
@@ -266,7 +269,8 @@ const BotScannerPage = () => {
         hasXRobotsNoImageAI: false,
         metaTagsFound: [],
         xRobotsTagsFound: [],
-        protectionScore: 0
+        protectionScore: 0,
+        homepageChecked: false
       };
     }
 
@@ -322,7 +326,8 @@ const BotScannerPage = () => {
       hasXRobotsNoAI: false,
       hasXRobotsNoImageAI: false,
       metaTagsFound: [],
-      xRobotsTagsFound: []
+      xRobotsTagsFound: [],
+      homepageChecked: false
     };
 
     const protectionScore = calculateProtectionScore(baseResult);
@@ -342,21 +347,37 @@ const BotScannerPage = () => {
     for (let i = 0; i < sites.length; i++) {
       const site = sites[i];
       
-      // Fetch robots.txt
+      // Extract domain from the input URL for consistency
+      let domain = '';
+      try {
+        let cleanUrl = (site['Robots.txt'] || '').trim();
+        if (!cleanUrl.startsWith('http')) cleanUrl = `https://${cleanUrl}`;
+        const urlObject = new URL(cleanUrl);
+        domain = `${urlObject.protocol}//${urlObject.hostname}`;
+      } catch (error) {
+        console.warn('Invalid URL for site:', site['Outlet'], error);
+        continue;
+      }
+      
+      // 1. Fetch robots.txt
       const robotsFetchResult = await fetchRobotsTxt(site['Robots.txt'] || '');
       let analysis = parseRobotsTxt(robotsFetchResult.content, site['Country'] || '', site['Outlet'] || '');
       analysis.fetchUrl = robotsFetchResult.url;
       
-      // Fetch main page for meta tags and headers
-      const pageResult = await fetchPageContent(site['Robots.txt'] || '');
+      // 2. Fetch homepage for meta tags and headers
+      console.log(`Checking homepage for meta tags: ${domain}/`);
+      const pageResult = await fetchPageContent(domain);
       if (pageResult) {
-        // Parse meta tags
+        analysis.homepageUrl = pageResult.url;
+        analysis.homepageChecked = true;
+        
+        // Parse meta tags from homepage HTML
         const metaAnalysis = parseMetaTags(pageResult.content);
         analysis.hasNoAIMetaTag = metaAnalysis.hasNoAI;
         analysis.hasNoImageAIMetaTag = metaAnalysis.hasNoImageAI;
         analysis.metaTagsFound = metaAnalysis.foundTags;
         
-        // Parse X-Robots-Tag headers
+        // Parse X-Robots-Tag headers from homepage response
         const headerAnalysis = parseXRobotsTags(pageResult.headers);
         analysis.hasXRobotsNoAI = headerAnalysis.hasNoAI;
         analysis.hasXRobotsNoImageAI = headerAnalysis.hasNoImageAI;
@@ -364,6 +385,9 @@ const BotScannerPage = () => {
         
         // Recalculate protection score with new data
         analysis.protectionScore = calculateProtectionScore(analysis);
+      } else {
+        analysis.homepageChecked = false;
+        console.warn(`Failed to fetch homepage for: ${domain}`);
       }
       
       analysisResults.push(analysis);
@@ -389,6 +413,7 @@ const BotScannerPage = () => {
     const sitesWithSitemaps = data.filter(d => d.hasSitemaps).length;
 
     // New meta tag and header analysis
+    const homepagesChecked = data.filter(d => d.homepageChecked).length;
     const sitesWithNoAIMeta = data.filter(d => d.hasNoAIMetaTag).length;
     const sitesWithNoImageAIMeta = data.filter(d => d.hasNoImageAIMetaTag).length;
     const sitesWithXRobotsNoAI = data.filter(d => d.hasXRobotsNoAI).length;
@@ -438,13 +463,15 @@ const BotScannerPage = () => {
       sitesWithSitemaps, averageBotsBlocked, topBlockedBots, categoryAnalysis,
       percentageBlockingAI: (sitesBlockingAICount / total * 100).toFixed(1),
       // New summary fields
+      homepagesChecked,
       sitesWithNoAIMeta,
       sitesWithNoImageAIMeta,
       sitesWithXRobotsNoAI,
       sitesWithXRobotsNoImageAI,
       averageProtectionScore,
       percentageWithNoAIMeta: (sitesWithNoAIMeta / total * 100).toFixed(1),
-      percentageWithHeaders: ((sitesWithXRobotsNoAI + sitesWithXRobotsNoImageAI) / total * 100).toFixed(1)
+      percentageWithHeaders: ((sitesWithXRobotsNoAI + sitesWithXRobotsNoImageAI) / total * 100).toFixed(1),
+      homepageSuccessRate: (homepagesChecked / total * 100).toFixed(1)
     });
   };
 
@@ -454,9 +481,13 @@ const BotScannerPage = () => {
         <h1 className="text-4xl font-bold text-gray-900 mb-2">
           BotScanner
         </h1>
-        <p className="text-lg text-gray-600">
-          Analyze `robots.txt` files for AI web crawler blocking rules.
+        <p className="text-lg text-gray-600 mb-2">
+          Comprehensive AI protection analysis across multiple website layers.
         </p>
+        <div className="text-sm text-gray-500 max-w-2xl mx-auto">
+          <p>This scanner analyzes <strong>both robots.txt files AND homepages</strong> to detect:</p>
+          <p>🤖 Robot.txt AI bot blocking • 🏷️ NoAI meta tags • 📡 X-Robots-Tag headers • 🔒 Multi-layer protection scores</p>
+        </div>
       </div>
 
       <div className="mb-8">
@@ -504,7 +535,12 @@ const BotScannerPage = () => {
             {/* New Meta Tags & Headers Section */}
             <div className="bg-gray-50 p-4 rounded-lg mb-6">
               <h3 className="text-lg font-bold text-gray-900 mb-3">Advanced Protection Methods</h3>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-green-600">{summary.homepagesChecked}</div>
+                  <div className="text-sm text-gray-600">Homepages Analyzed</div>
+                  <div className="text-xs text-gray-500">{summary.homepageSuccessRate}% success</div>
+                </div>
                 <div className="text-center">
                   <div className="text-2xl font-bold text-indigo-600">{summary.sitesWithNoAIMeta}</div>
                   <div className="text-sm text-gray-600">NoAI Meta Tags</div>
@@ -580,7 +616,7 @@ const BotScannerPage = () => {
                             <tr>
                                 <th className="px-4 py-3 text-left text-sm font-medium text-gray-900">Country</th>
                                 <th className="px-4 py-3 text-left text-sm font-medium text-gray-900">Outlet</th>
-                                <th className="px-4 py-3 text-left text-sm font-medium text-gray-900">Robots.txt</th>
+                                <th className="px-4 py-3 text-left text-sm font-medium text-gray-900">Pages Checked</th>
                                 <th className="px-4 py-3 text-left text-sm font-medium text-gray-900">Blocks AI</th>
                                 <th className="px-4 py-3 text-left text-sm font-medium text-gray-900">Strategy</th>
                                 <th className="px-4 py-3 text-left text-sm font-medium text-gray-900">Bot Count</th>
@@ -596,13 +632,22 @@ const BotScannerPage = () => {
                                     <td className="px-4 py-3 text-sm text-gray-600">{result.country}</td>
                                     <td className="px-4 py-3 text-sm font-medium text-gray-900">{result.outlet}</td>
                                     <td className="px-4 py-3 text-sm">
-                                      {result.robotsExists ? (
-                                        <a href={result.fetchUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline flex items-center gap-1">
-                                          <LinkIcon size={14} /> View
-                                        </a>
-                                      ) : (
-                                        <span className="text-gray-500">-</span>
-                                      )}
+                                      <div className="flex flex-col gap-1">
+                                        {result.robotsExists ? (
+                                          <a href={result.fetchUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline flex items-center gap-1 text-xs">
+                                            <LinkIcon size={12} /> robots.txt
+                                          </a>
+                                        ) : (
+                                          <span className="text-gray-500 text-xs">No robots.txt</span>
+                                        )}
+                                        {result.homepageChecked && result.homepageUrl ? (
+                                          <a href={result.homepageUrl} target="_blank" rel="noopener noreferrer" className="text-green-600 hover:underline flex items-center gap-1 text-xs">
+                                            <LinkIcon size={12} /> homepage
+                                          </a>
+                                        ) : (
+                                          <span className="text-gray-500 text-xs">Homepage failed</span>
+                                        )}
+                                      </div>
                                     </td>
                                     <td className="px-4 py-3">
                                       <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
