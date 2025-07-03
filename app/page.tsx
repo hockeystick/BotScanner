@@ -3,7 +3,7 @@
 'use client';
 
 import React, { useState, useCallback } from 'react';
-import { Upload, Play, FileText, Zap, Globe, Link as LinkIcon, Shield, CheckCircle, BarChart3, Bot, Target } from 'lucide-react';
+import { Upload, Play, FileText, Zap, Globe, Link as LinkIcon, Shield, CheckCircle, BarChart3, Bot, Target, Download } from 'lucide-react';
 
 // --- TYPE DEFINITIONS ---
 type SiteData = { [key: string]: string };
@@ -180,7 +180,6 @@ const BotScannerPage = () => {
 
   const generateSummaryAndStats = (data: AnalysisResult[]) => {
     const total = data.length; if (total === 0) return;
-    // Summary
     const sitesWithRobots = data.filter(d => d.robotsExists).length;
     const sitesBlockingAI = data.filter(d => d.blocksAI).length;
     const botCounts: { [key: string]: number } = {};
@@ -195,7 +194,6 @@ const BotScannerPage = () => {
       percentageBlockingAI: (sitesBlockingAI/total*100).toFixed(1)
     });
 
-    // Country Stats
     const countryData: Record<string, { total: number; hasRobots: number; blocksAI: number; strategies: Record<string, number> }> = {};
     data.forEach(d => {
         if (!d.country || d.country === 'N/A') return;
@@ -210,6 +208,51 @@ const BotScannerPage = () => {
         mostCommonStrategy: Object.keys(d.strategies).length ? Object.entries(d.strategies).sort((a,b)=>b[1]-a[1])[0][0] : 'None'
     })).sort((a,b) => b.blocksAI / b.total - a.blocksAI / a.total);
     setCountryStats(stats);
+  };
+
+  // --- NEW DOWNLOAD FUNCTION ---
+  const downloadResults = () => {
+    if (results.length === 0) return;
+
+    const headers = [
+      'Country', 'Outlet', 'Protection_Score', 'Blocks_AI_RobotsTxt', 'Robots.txt_Bots_Blocked',
+      'Robots.txt_Strategy', 'Has_NoAI_Meta_Tag', 'Has_XRobots_NoAI_Header', 'Blocked_Bots_List', 'Robots_txt_URL'
+    ];
+
+    const formatField = (field: any) => {
+      const str = String(field ?? '');
+      if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+        return `"${str.replace(/"/g, '""')}"`;
+      }
+      return str;
+    };
+
+    const csvContent = [
+      headers.join(','),
+      ...results.map(r => [
+        formatField(r.country),
+        formatField(r.outlet),
+        formatField(r.protectionScore),
+        formatField(r.blocksAI),
+        formatField(r.aiBotsBlockedCount),
+        formatField(r.blockingStrategy),
+        formatField(r.hasNoAIMetaTag),
+        formatField(r.hasXRobotsNoAI),
+        formatField(r.blockedBotsList.join('; ')),
+        formatField(r.fetchUrl)
+      ].join(','))
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    if (link.href) {
+      URL.revokeObjectURL(link.href);
+    }
+    link.href = URL.createObjectURL(blob);
+    link.setAttribute('download', 'botscanner_analysis_results.csv');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
   
   // --- RENDER FUNCTION ---
@@ -252,13 +295,19 @@ const BotScannerPage = () => {
                   {file && <div className="mt-4 text-green-700 font-medium">✅ {file.name} ({sites.length} sites loaded)</div>}
                 </div>
                 <div className="w-full md:w-px h-px md:h-24 bg-gray-200"></div>
-                <div className="flex-1 text-center">
-                  <button onClick={analyzeAllSites} disabled={!sites.length || analyzing} className="w-full md:w-auto flex items-center justify-center gap-3 bg-green-500 text-white px-10 py-4 rounded-xl text-lg font-bold shadow-md hover:bg-green-600 transition-all duration-300 transform hover:scale-105 disabled:bg-gray-400 disabled:scale-100">
+                <div className="flex-1 text-center flex flex-col sm:flex-row items-center justify-center gap-4">
+                  <button onClick={analyzeAllSites} disabled={!sites.length || analyzing} className="w-full sm:w-auto flex items-center justify-center gap-3 bg-green-500 text-white px-10 py-4 rounded-xl text-lg font-bold shadow-md hover:bg-green-600 transition-all duration-300 transform hover:scale-105 disabled:bg-gray-400 disabled:scale-100">
                       <Play size={24} /> {analyzing ? `Analyzing... ${Math.round(progress)}%` : 'Analyze All Sites'}
                   </button>
-                  {analyzing && <div className="mt-4 w-full bg-gray-200 rounded-full h-2.5"><div className="bg-green-500 h-2.5 rounded-full" style={{ width: `${progress}%` }}></div></div>}
+                  {/* --- NEW DOWNLOAD BUTTON --- */}
+                  {results.length > 0 && !analyzing && (
+                    <button onClick={downloadResults} className="w-full sm:w-auto flex items-center justify-center gap-3 bg-blue-500 text-white px-10 py-4 rounded-xl text-lg font-bold shadow-md hover:bg-blue-600 transition-all duration-300 transform hover:scale-105">
+                      <Download size={24} /> Download Results
+                    </button>
+                  )}
                 </div>
               </div>
+              {analyzing && <div className="mt-4 w-full bg-gray-200 rounded-full h-2.5"><div className="bg-green-500 h-2.5 rounded-full" style={{ width: `${progress}%` }}></div></div>}
             </div>
             
             {summary && (
