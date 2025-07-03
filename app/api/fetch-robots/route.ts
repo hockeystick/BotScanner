@@ -1,4 +1,4 @@
-// This is the full content for app/api/fetch-robots/route.ts
+// PASTE THIS ENTIRE CODE BLOCK INTO: app/api/fetch-robots/route.ts
 
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -10,12 +10,13 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'URL parameter is required' }, { status: 400 });
   }
 
-  const userAgent = 'Mozilla/5.0 (compatible; BotScanner/1.0)';
+  // Updated, polite User-Agent with your live URL
+  const userAgent = 'Mozilla/5.0 (compatible; BotScanner/1.0; +https://bot-scanner-n4g8.vercel.app)';
 
   try {
     const response = await fetch(targetUrl, {
       headers: { 'User-Agent': userAgent },
-      signal: AbortSignal.timeout(8000),
+      signal: AbortSignal.timeout(8000), // 8-second timeout
     });
 
     if (!response.ok) {
