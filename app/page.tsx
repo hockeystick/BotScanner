@@ -1,11 +1,11 @@
 // PASTE THIS ENTIRE CODE BLOCK INTO: app/page.tsx
 
-'use client'; // <-- THIS IS THE CRUCIAL LINE THAT MAKES THE PAGE INTERACTIVE
+'use client';
 
 import React, { useState, useCallback } from 'react';
-import { Upload, Play, BarChart3, AlertCircle, CheckCircle, Globe } from 'lucide-react';
+import { Upload, Play, BarChart3, AlertCircle, CheckCircle, Globe, Building, Link as LinkIcon } from 'lucide-react';
 
-// Define types for our data structures to make the code safer
+// Define types for our data structures
 type SiteData = { [key: string]: string };
 
 type FetchResult = {
@@ -38,48 +38,23 @@ const BotScannerPage = () => {
 
   const AI_BOTS: { [key: string]: { owner: string; category: string } } = {
     // Major AI Labs
-    'GPTBot': { owner: 'OpenAI', category: 'Major AI' },
-    'ChatGPT-User': { owner: 'OpenAI', category: 'Major AI' },
-    'OAI-SearchBot': { owner: 'OpenAI', category: 'Major AI' },
-    'Google-Extended': { owner: 'Google', category: 'Major AI' },
-    'anthropic-ai': { owner: 'Anthropic', category: 'Major AI' },
-    'ClaudeBot': { owner: 'Anthropic', category: 'Major AI' },
-    'Claude-Web': { owner: 'Anthropic', category: 'Major AI' },
-    'Claude-User': { owner: 'Anthropic', category: 'Major AI'},
-    'Claude-SearchBot': { owner: 'Anthropic', category: 'Major AI'},
-    'cohere-ai': { owner: 'Cohere', category: 'Major AI' },
-    'MistralAI-User': { owner: 'Mistral', category: 'Major AI' },
-    'FacebookBot': { owner: 'Meta', category: 'Social Media' },
-    'Meta-ExternalAgent': { owner: 'Meta', category: 'Social Media' },
-    'meta-externalagent': { owner: 'Meta', category: 'Social Media' },
-
+    'GPTBot': { owner: 'OpenAI', category: 'Major AI' }, 'ChatGPT-User': { owner: 'OpenAI', category: 'Major AI' }, 'OAI-SearchBot': { owner: 'OpenAI', category: 'Major AI' }, 'Google-Extended': { owner: 'Google', category: 'Major AI' }, 'anthropic-ai': { owner: 'Anthropic', category: 'Major AI' }, 'ClaudeBot': { owner: 'Anthropic', category: 'Major AI' }, 'Claude-Web': { owner: 'Anthropic', category: 'Major AI' }, 'Claude-User': { owner: 'Anthropic', category: 'Major AI'}, 'Claude-SearchBot': { owner: 'Anthropic', category: 'Major AI'}, 'cohere-ai': { owner: 'Cohere', category: 'Major AI' }, 'MistralAI-User': { owner: 'Mistral', category: 'Major AI' }, 'FacebookBot': { owner: 'Meta', category: 'Social Media' }, 'Meta-ExternalAgent': { owner: 'Meta', category: 'Social Media' }, 'meta-externalagent': { owner: 'Meta', category: 'Social Media' },
     // Search & Aggregators
-    'PerplexityBot': { owner: 'Perplexity', category: 'Search' },
-    'Perplexity-User': { owner: 'Perplexity', category: 'Search' },
-    'YouBot': { owner: 'You.com', category: 'Search' },
-    'DuckAssistBot': { owner: 'DuckDuckGo', category: 'Search' },
-    'PetalBot': { owner: 'Petal Search', category: 'Search'},
-
+    'PerplexityBot': { owner: 'Perplexity', category: 'Search' }, 'Perplexity-User': { owner: 'Perplexity', category: 'Search' }, 'YouBot': { owner: 'You.com', category: 'Search' }, 'DuckAssistBot': { owner: 'DuckDuckGo', category: 'Search' }, 'PetalBot': { owner: 'Petal Search', category: 'Search'},
     // Web Crawlers / SEO
-    'Bytespider': { owner: 'ByteDance', category: 'Web Crawler' },
-    'TikTokSpider': { owner: 'ByteDance', category: 'Web Crawler' },
-    'CCBot': { owner: 'Common Crawl', category: 'Web Crawler' },
-    'AhrefsBot': { owner: 'Ahrefs', category: 'SEO' },
-    'Applebot': { owner: 'Apple', category: 'Web Crawler' },
-    'Applebot-Extended': { owner: 'Apple', category: 'Web Crawler' },
-    'Amazonbot': { owner: 'Amazon', category: 'Web Crawler' },
-    'Diffbot': { owner: 'Diffbot', category: 'Web Crawler' },
-    
+    'Bytespider': { owner: 'ByteDance', category: 'Web Crawler' }, 'TikTokSpider': { owner: 'ByteDance', category: 'Web Crawler' }, 'CCBot': { owner: 'Common Crawl', category: 'Web Crawler' }, 'AhrefsBot': { owner: 'Ahrefs', category: 'SEO' }, 'Applebot': { owner: 'Apple', category: 'Web Crawler' }, 'Applebot-Extended': { owner: 'Apple', category: 'Web Crawler' }, 'Amazonbot': { owner: 'Amazon', category: 'Web Crawler' }, 'Diffbot': { owner: 'Diffbot', category: 'Web Crawler' },
     // Academic & Other
-    'AI2Bot': { owner: 'Allen Institute', category: 'Academic' },
-    'Ai2Bot-Dolma': { owner: 'Allen Institute', category: 'Academic' },
-    'img2dataset': { owner: 'Academic', category: 'Academic' },
-    'news-please': { owner: 'Academic', category: 'Academic' },
-    'magpie-crawler': { owner: 'Academic', category: 'Academic' },
-
+    'AI2Bot': { owner: 'Allen Institute', category: 'Academic' }, 'Ai2Bot-Dolma': { owner: 'Allen Institute', category: 'Academic' }, 'img2dataset': { owner: 'Academic', category: 'Academic' }, 'news-please': { owner: 'Academic', category: 'Academic' }, 'magpie-crawler': { owner: 'Academic', category: 'Academic' },
     // Unknown or Generic
-    'Omgilibot': { owner: 'Omgili', category: 'Generic' },
-    'omgili': { owner: 'Omgili', category: 'Generic' },
+    'Omgilibot': { owner: 'Omgili', category: 'Generic' }, 'omgili': { owner: 'Omgili', category: 'Generic' },
+  };
+  
+  const strategyColors: { [key: string]: string } = {
+    Extensive: 'bg-red-100 text-red-800',
+    Comprehensive: 'bg-orange-100 text-orange-800',
+    Moderate: 'bg-yellow-100 text-yellow-800',
+    Basic: 'bg-blue-100 text-blue-800',
+    None: 'bg-gray-100 text-gray-800',
   };
 
   const parseCSVLine = (line: string): string[] => {
@@ -187,7 +162,6 @@ const BotScannerPage = () => {
         // Check for blocking all AI bots or specific ones
         if (path === '/') {
             Object.keys(AI_BOTS).forEach(bot => {
-                // The '!' is safe here because of the `&& currentAgent` check above.
                 if (currentAgent === '*' || currentAgent!.toLowerCase() === bot.toLowerCase()) {
                   blockedBots.add(bot);
                 }
@@ -290,7 +264,7 @@ const BotScannerPage = () => {
   };
 
   return (
-    <div className="max-w-4xl mx-auto p-4 sm:p-6 bg-white">
+    <div className="max-w-7xl mx-auto p-4 sm:p-6 bg-white">
       <div className="mb-8 text-center">
         <h1 className="text-4xl font-bold text-gray-900 mb-2">
           BotScanner
@@ -332,7 +306,7 @@ const BotScannerPage = () => {
       )}
       
       {summary && (
-        <div className="space-y-8">
+        <div className="space-y-12">
           <div>
             <h2 className="text-2xl font-bold text-gray-900 mb-4 pb-2 border-b">Overall Analysis</h2>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -343,45 +317,104 @@ const BotScannerPage = () => {
             </div>
           </div>
 
-          <div>
-            <h3 className="text-xl font-bold text-gray-900 mb-3">Blocked Bot Category Breakdown</h3>
-            <p className="text-sm text-gray-600 mb-4">Percentage of sites that block at least one bot from each category.</p>
-            <div className="bg-gray-50 p-4 rounded-lg space-y-3">
-              {summary.categoryAnalysis.map((cat: any) => (
-                <div key={cat.category}>
-                  <div className="flex justify-between items-center text-sm mb-1">
-                    <span className="font-medium">{cat.category}</span>
-                    <span className="text-gray-600">{cat.count} sites ({cat.percentage}%)</span>
-                  </div>
-                  <div className="w-full bg-gray-200 rounded-full h-2.5">
-                    <div className="bg-blue-600 h-2.5 rounded-full" style={{ width: `${cat.percentage}%` }}></div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div>
-            <h3 className="text-xl font-bold text-gray-900 mb-3">Top 10 Most Frequently Blocked Bots</h3>
-            <div className="bg-white rounded-lg border">
-              <ul className="divide-y divide-gray-200">
-                {summary.topBlockedBots.map((bot: any, index: number) => (
-                  <li key={index} className="p-3 flex justify-between items-center">
-                    <div>
-                      <span className="font-medium text-gray-800">{bot.bot}</span>
-                      <span className="text-sm text-gray-500 ml-2">({bot.owner})</span>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <div>
+              <h3 className="text-xl font-bold text-gray-900 mb-3">Blocked Bot Category Breakdown</h3>
+              <p className="text-sm text-gray-600 mb-4">Percentage of sites that block at least one bot from each category.</p>
+              <div className="bg-gray-50 p-4 rounded-lg space-y-3">
+                {summary.categoryAnalysis.map((cat: any) => (
+                  <div key={cat.category}>
+                    <div className="flex justify-between items-center text-sm mb-1">
+                      <span className="font-medium">{cat.category}</span>
+                      <span className="text-gray-600">{cat.count} sites ({cat.percentage}%)</span>
                     </div>
-                    <div className="text-sm">
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800 mr-4">
-                            {bot.category}
-                        </span>
-                        <span className="font-semibold">{bot.count} sites</span>
+                    <div className="w-full bg-gray-200 rounded-full h-2.5">
+                      <div className="bg-blue-600 h-2.5 rounded-full" style={{ width: `${cat.percentage}%` }}></div>
                     </div>
-                  </li>
+                  </div>
                 ))}
-              </ul>
+              </div>
+            </div>
+
+            <div>
+              <h3 className="text-xl font-bold text-gray-900 mb-3">Top 10 Most Blocked Bots</h3>
+              <div className="bg-white rounded-lg border">
+                <ul className="divide-y divide-gray-200">
+                  {summary.topBlockedBots.map((bot: any, index: number) => (
+                    <li key={index} className="p-3 flex justify-between items-center">
+                      <div>
+                        <span className="font-medium text-gray-800">{bot.bot}</span>
+                        <span className="text-sm text-gray-500 ml-2">({bot.owner})</span>
+                      </div>
+                      <div className="text-sm">
+                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800 mr-4`}>
+                              {bot.category}
+                          </span>
+                          <span className="font-semibold">{bot.count} sites</span>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* --- THIS IS THE RESTORED DETAILED RESULTS TABLE --- */}
+      {results.length > 0 && !analyzing && (
+        <div className="mt-12">
+            <h2 className="text-2xl font-bold text-gray-900 mb-4 pb-2 border-b">Detailed Results by Outlet</h2>
+            <div className="bg-white rounded-lg border overflow-hidden">
+                <div className="overflow-x-auto">
+                    <table className="w-full">
+                        <thead className="bg-gray-50">
+                            <tr>
+                                <th className="px-4 py-3 text-left text-sm font-medium text-gray-900">Country</th>
+                                <th className="px-4 py-3 text-left text-sm font-medium text-gray-900">Outlet</th>
+                                <th className="px-4 py-3 text-left text-sm font-medium text-gray-900">Robots.txt</th>
+                                <th className="px-4 py-3 text-left text-sm font-medium text-gray-900">Blocks AI</th>
+                                <th className="px-4 py-3 text-left text-sm font-medium text-gray-900">Strategy</th>
+                                <th className="px-4 py-3 text-left text-sm font-medium text-gray-900">Bot Count</th>
+                                <th className="px-4 py-3 text-left text-sm font-medium text-gray-900">Blocked Bots</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-200">
+                            {results.map((result, index) => (
+                                <tr key={index} className="hover:bg-gray-50">
+                                    <td className="px-4 py-3 text-sm text-gray-600">{result.country}</td>
+                                    <td className="px-4 py-3 text-sm font-medium text-gray-900">{result.outlet}</td>
+                                    <td className="px-4 py-3 text-sm">
+                                      {result.robotsExists ? (
+                                        <a href={result.fetchUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline flex items-center gap-1">
+                                          <LinkIcon size={14} /> View
+                                        </a>
+                                      ) : (
+                                        <span className="text-gray-500">-</span>
+                                      )}
+                                    </td>
+                                    <td className="px-4 py-3">
+                                      <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                                        result.blocksAI ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'
+                                      }`}>
+                                        {result.blocksAI ? 'Yes' : 'No'}
+                                      </span>
+                                    </td>
+                                    <td className="px-4 py-3">
+                                      <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${strategyColors[result.blockingStrategy]}`}>
+                                        {result.blockingStrategy}
+                                      </span>
+                                    </td>
+                                    <td className="px-4 py-3 text-sm text-gray-900 text-center">{result.aiBotsBlockedCount}</td>
+                                    <td className="px-4 py-3 text-sm text-gray-600 max-w-xs truncate">
+                                      {result.blockedBotsList.length > 0 ? result.blockedBotsList.slice(0, 3).join(', ') + (result.blockedBotsList.length > 3 ? '...' : '') : '-'}
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
         </div>
       )}
     </div>
