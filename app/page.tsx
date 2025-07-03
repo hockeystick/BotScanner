@@ -1,6 +1,6 @@
 // PASTE THIS ENTIRE CODE BLOCK INTO: app/page.tsx
 
-'use client';
+'use client'; // <-- THIS IS THE CRUCIAL LINE THAT MAKES THE PAGE INTERACTIVE
 
 import React, { useState, useCallback } from 'react';
 import { Upload, Play, BarChart3, AlertCircle, CheckCircle, Globe } from 'lucide-react';
@@ -82,7 +82,6 @@ const BotScannerPage = () => {
     'omgili': { owner: 'Omgili', category: 'Generic' },
   };
 
-  // --- THIS IS THE CORRECTED, ROBUST CSV PARSER ---
   const parseCSVLine = (line: string): string[] => {
     const result: string[] = [];
     let current = '';
