@@ -3,7 +3,7 @@
 'use client'; // <-- THIS IS THE CRUCIAL LINE THAT MAKES THE PAGE INTERACTIVE
 
 import React, { useState, useCallback, useMemo } from 'react';
-import { Upload, Play, BarChart3, AlertCircle, CheckCircle, Globe, Link as LinkIcon, ChevronUp, ChevronDown, Search, Filter, Shield, Bot, Target } from 'lucide-react';
+import { Upload, Play, BarChart3, AlertCircle, CheckCircle, Globe, Link as LinkIcon, ChevronUp, ChevronDown, Search, Filter, Shield, Bot, Target, Zap, FileText } from 'lucide-react';
 
 // Define types for our data structures
 type SiteData = { [key: string]: string };
@@ -50,6 +50,15 @@ type SortField = 'protectionScore' | 'aiBotsBlockedCount' | 'blockingStrategy' |
 type SortDirection = 'asc' | 'desc';
 
 const BotScannerPage = () => {
+  // Mode selection
+  const [mode, setMode] = useState<'single' | 'bulk'>('single');
+  
+  // Single domain mode
+  const [singleDomain, setSingleDomain] = useState('');
+  const [singleResult, setSingleResult] = useState<AnalysisResult | null>(null);
+  const [analyzingSingle, setAnalyzingSingle] = useState(false);
+  
+  // Bulk mode
   const [file, setFile] = useState<File | null>(null);
   const [sites, setSites] = useState<SiteData[]>([]);
   const [analyzing, setAnalyzing] = useState(false);
@@ -57,7 +66,7 @@ const BotScannerPage = () => {
   const [results, setResults] = useState<AnalysisResult[]>([]);
   const [summary, setSummary] = useState<any | null>(null);
   
-  // New UI state
+  // UI state
   const [sortBy, setSortBy] = useState<SortField>('protectionScore');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const [searchTerm, setSearchTerm] = useState('');
@@ -346,6 +355,52 @@ const BotScannerPage = () => {
     return { ...baseResult, protectionScore };
   };
 
+  const analyzeSingleDomain = async () => {
+    if (!singleDomain.trim()) return;
+    
+    setAnalyzingSingle(true);
+    setSingleResult(null);
+    
+    try {
+      let domain = singleDomain.trim();
+      if (!domain.startsWith('http')) domain = `https://${domain}`;
+      const urlObject = new URL(domain);
+      const cleanDomain = urlObject.hostname;
+      
+      // Fetch robots.txt
+      const robotsFetchResult = await fetchRobotsTxt(cleanDomain);
+      let analysis = parseRobotsTxt(robotsFetchResult.content, '', cleanDomain);
+      analysis.fetchUrl = robotsFetchResult.url;
+      
+      // Fetch homepage content
+      const pageResult = await fetchPageContent(cleanDomain);
+      if (pageResult) {
+        analysis.homepageUrl = pageResult.url;
+        analysis.homepageChecked = true;
+        
+        const metaAnalysis = parseMetaTags(pageResult.content);
+        analysis.hasNoAIMetaTag = metaAnalysis.hasNoAI;
+        analysis.hasNoImageAIMetaTag = metaAnalysis.hasNoImageAI;
+        analysis.metaTagsFound = metaAnalysis.foundTags;
+        
+        const headerAnalysis = parseXRobotsTags(pageResult.headers);
+        analysis.hasXRobotsNoAI = headerAnalysis.hasNoAI;
+        analysis.hasXRobotsNoImageAI = headerAnalysis.hasNoImageAI;
+        analysis.xRobotsTagsFound = headerAnalysis.foundTags;
+        
+        analysis.protectionScore = calculateProtectionScore(analysis);
+      } else {
+        analysis.homepageChecked = false;
+      }
+      
+      setSingleResult(analysis);
+    } catch (error) {
+      console.error('Error analyzing domain:', error);
+    } finally {
+      setAnalyzingSingle(false);
+    }
+  };
+
   const analyzeAllSites = async () => {
     if (!sites.length) return;
     setAnalyzing(true);
@@ -373,7 +428,6 @@ const BotScannerPage = () => {
       let analysis = parseRobotsTxt(robotsFetchResult.content, site['Country'] || '', site['Outlet'] || '');
       analysis.fetchUrl = robotsFetchResult.url;
       
-      console.log(`Checking homepage for meta tags: ${domain}/`);
       const pageResult = await fetchPageContent(domain);
       if (pageResult) {
         analysis.homepageUrl = pageResult.url;
@@ -392,7 +446,6 @@ const BotScannerPage = () => {
         analysis.protectionScore = calculateProtectionScore(analysis);
       } else {
         analysis.homepageChecked = false;
-        console.warn(`Failed to fetch homepage for: ${domain}`);
       }
       
       analysisResults.push(analysis);
@@ -494,16 +547,14 @@ const BotScannerPage = () => {
       <ChevronUp className="w-4 h-4 text-blue-600" />;
   };
 
-  // Filtered and sorted results
+  // Filtered and sorted results for bulk mode
   const filteredAndSortedResults = useMemo(() => {
     let filtered = results.filter(result => {
-      // Search filter
       if (searchTerm && !result.outlet.toLowerCase().includes(searchTerm.toLowerCase()) && 
           !result.country.toLowerCase().includes(searchTerm.toLowerCase())) {
         return false;
       }
       
-      // Protection level filter
       if (filterLevel !== 'all') {
         const levelInfo = getProtectionLevelInfo(result.protectionScore);
         if (levelInfo.level.toLowerCase() !== filterLevel.toLowerCase()) {
@@ -511,7 +562,6 @@ const BotScannerPage = () => {
         }
       }
       
-      // Protected only filter
       if (showProtectedOnly && result.protectionScore === 0) {
         return false;
       }
@@ -519,7 +569,6 @@ const BotScannerPage = () => {
       return true;
     });
 
-    // Sort results
     filtered.sort((a, b) => {
       let aValue, bValue;
       
@@ -569,6 +618,82 @@ const BotScannerPage = () => {
     return filtered;
   }, [results, searchTerm, filterLevel, showProtectedOnly, sortBy, sortDirection]);
 
+  const renderSingleResult = () => {
+    if (!singleResult) return null;
+    
+    const levelInfo = getProtectionLevelInfo(singleResult.protectionScore);
+    
+    return (
+      <div className="bg-white/90 backdrop-blur-sm rounded-2xl shadow-xl border border-white/20 overflow-hidden">
+        <div className="p-6 bg-gradient-to-r from-gray-50 to-blue-50 border-b border-gray-200">
+          <h3 className="text-2xl font-bold text-gray-900 mb-2 flex items-center gap-2">
+            🔍 Analysis Results for {singleResult.outlet || 'Domain'}
+          </h3>
+        </div>
+        
+        <div className="p-6 space-y-6">
+          {/* Protection Score */}
+          <div className="text-center">
+            <div className={`inline-flex px-6 py-3 text-xl font-bold rounded-full text-white bg-gradient-to-r ${levelInfo.gradient} shadow-lg`}>
+              Protection Score: {singleResult.protectionScore}
+            </div>
+            <p className="text-lg text-gray-600 mt-2">{levelInfo.level} Protection Level</p>
+          </div>
+          
+          {/* Key Stats */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="text-center bg-blue-50 p-4 rounded-lg">
+              <div className="text-2xl font-bold text-blue-600">{singleResult.aiBotsBlockedCount}</div>
+              <div className="text-sm text-blue-700">AI Bots Blocked</div>
+            </div>
+            <div className="text-center bg-green-50 p-4 rounded-lg">
+              <div className="text-2xl font-bold text-green-600">{singleResult.robotsExists ? '✓' : '✗'}</div>
+              <div className="text-sm text-green-700">Robots.txt</div>
+            </div>
+            <div className="text-center bg-purple-50 p-4 rounded-lg">
+              <div className="text-2xl font-bold text-purple-600">{singleResult.hasNoAIMetaTag ? '✓' : '✗'}</div>
+              <div className="text-sm text-purple-700">NoAI Meta Tag</div>
+            </div>
+            <div className="text-center bg-pink-50 p-4 rounded-lg">
+              <div className="text-2xl font-bold text-pink-600">{singleResult.hasXRobotsNoAI ? '✓' : '✗'}</div>
+              <div className="text-sm text-pink-700">X-Robots Header</div>
+            </div>
+          </div>
+          
+          {/* Links */}
+          <div className="flex gap-4 justify-center">
+            {singleResult.fetchUrl && (
+              <a href={singleResult.fetchUrl} target="_blank" rel="noopener noreferrer" 
+                 className="flex items-center gap-2 text-blue-600 hover:text-blue-800 hover:underline">
+                <LinkIcon size={16} /> View robots.txt
+              </a>
+            )}
+            {singleResult.homepageUrl && (
+              <a href={singleResult.homepageUrl} target="_blank" rel="noopener noreferrer" 
+                 className="flex items-center gap-2 text-green-600 hover:text-green-800 hover:underline">
+                <LinkIcon size={16} /> View homepage
+              </a>
+            )}
+          </div>
+          
+          {/* Blocked Bots */}
+          {singleResult.blockedBotsList.length > 0 && (
+            <div>
+              <h4 className="font-bold text-gray-900 mb-3">Blocked AI Bots</h4>
+              <div className="flex flex-wrap gap-2">
+                {singleResult.blockedBotsList.map(bot => (
+                  <span key={bot} className="px-3 py-1 bg-red-100 text-red-800 rounded-full text-sm font-medium">
+                    {bot}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100">
       <div className="max-w-7xl mx-auto p-4 sm:p-6">
@@ -591,378 +716,443 @@ const BotScannerPage = () => {
           </div>
         </div>
 
-        {/* File Upload */}
+        {/* Mode Selection */}
         <div className="mb-8">
-          <div className="bg-gradient-to-r from-white to-blue-50/50 border-2 border-dashed border-blue-300 rounded-2xl p-8 text-center shadow-lg backdrop-blur-sm">
-            <Upload className="mx-auto text-blue-500 mb-4" size={48} />
-            <div className="mb-4">
-              <label className="cursor-pointer">
-                <span className="bg-gradient-to-r from-blue-600 to-purple-600 text-white px-8 py-3 rounded-xl hover:from-blue-700 hover:to-purple-700 transition-all duration-200 font-semibold shadow-lg hover:shadow-xl transform hover:scale-105">
-                  📁 Upload CSV File
-                </span>
-                <input type="file" accept=".csv" onChange={handleFileUpload} className="hidden" />
-              </label>
-            </div>
-            {file && (
-              <div className="bg-green-50 border border-green-200 rounded-lg p-3 inline-block">
-                <p className="text-green-700 font-medium">✅ {file.name}</p>
-                <p className="text-green-600 text-sm">{sites.length} outlets loaded</p>
+          <div className="flex justify-center">
+            <div className="bg-white/80 backdrop-blur-sm rounded-xl p-2 shadow-lg border border-white/20">
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setMode('single')}
+                  className={`flex items-center gap-2 px-6 py-3 rounded-lg font-semibold transition-all duration-200 ${
+                    mode === 'single' 
+                      ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg' 
+                      : 'text-gray-600 hover:text-blue-600 hover:bg-blue-50'
+                  }`}
+                >
+                  <Zap size={18} />
+                  Quick Check
+                </button>
+                <button
+                  onClick={() => setMode('bulk')}
+                  className={`flex items-center gap-2 px-6 py-3 rounded-lg font-semibold transition-all duration-200 ${
+                    mode === 'bulk' 
+                      ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg' 
+                      : 'text-gray-600 hover:text-blue-600 hover:bg-blue-50'
+                  }`}
+                >
+                  <FileText size={18} />
+                  Bulk Analysis
+                </button>
               </div>
-            )}
-            <p className="text-sm text-gray-500 mt-3">Expected format: Country, Outlet, Robots.txt columns</p>
+            </div>
           </div>
         </div>
 
-        {/* Analyze Button */}
-        {sites.length > 0 && (
-          <div className="mb-8 text-center">
-            <button 
-              onClick={analyzeAllSites} 
-              disabled={analyzing} 
-              className="flex items-center justify-center w-full sm:w-auto mx-auto gap-3 bg-gradient-to-r from-green-500 to-emerald-600 text-white px-10 py-4 rounded-xl hover:from-green-600 hover:to-emerald-700 disabled:from-gray-400 disabled:to-gray-500 transition-all duration-200 text-lg font-bold shadow-lg hover:shadow-xl transform hover:scale-105 disabled:transform-none"
-            >
-              <Play size={24} />
-              {analyzing ? `🔍 Analyzing... ${Math.round(progress)}%` : '🚀 Analyze All Sites'}
-            </button>
-          </div>
-        )}
-
-        {/* Progress Bar */}
-        {analyzing && (
-          <div className="mb-8">
-            <div className="w-full bg-gray-200 rounded-full h-4 shadow-inner">
-              <div 
-                className="bg-gradient-to-r from-green-500 to-blue-500 h-4 rounded-full transition-all duration-300 shadow-sm" 
-                style={{ width: `${progress}%` }}
-              ></div>
-            </div>
-            <p className="text-center mt-2 text-sm text-gray-600">Processing {Math.round(progress)}% complete</p>
-          </div>
-        )}
-        
-        {/* Summary Dashboard */}
-        {summary && (
-          <div className="space-y-8 mb-12">
-            {/* Main Stats */}
-            <div className="bg-white/80 backdrop-blur-sm rounded-2xl p-6 shadow-xl border border-white/20">
-              <h2 className="text-3xl font-bold text-gray-900 mb-6 pb-2 border-b-2 border-gradient-to-r from-blue-500 to-purple-500">
-                📊 Analysis Overview
-              </h2>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-                <div className="bg-gradient-to-br from-blue-500 to-blue-600 p-6 rounded-xl text-white shadow-lg hover:shadow-xl transition-all duration-200 hover:scale-105">
-                  <div className="flex items-center gap-3 mb-3">
-                    <Globe className="w-6 h-6" />
-                    <span className="font-semibold">Total Sites</span>
-                  </div>
-                  <p className="text-4xl font-bold">{summary.total}</p>
-                </div>
-                
-                <div className="bg-gradient-to-br from-emerald-500 to-emerald-600 p-6 rounded-xl text-white shadow-lg hover:shadow-xl transition-all duration-200 hover:scale-105">
-                  <div className="flex items-center gap-3 mb-3">
-                    <Shield className="w-6 h-6" />
-                    <span className="font-semibold">Protected Sites</span>
-                  </div>
-                  <p className="text-4xl font-bold">{summary.sitesBlockingAICount}</p>
-                  <p className="text-emerald-100 text-sm">{summary.percentageBlockingAI}% of total</p>
-                </div>
-                
-                <div className="bg-gradient-to-br from-amber-500 to-orange-500 p-6 rounded-xl text-white shadow-lg hover:shadow-xl transition-all duration-200 hover:scale-105">
-                  <div className="flex items-center gap-3 mb-3">
-                    <AlertCircle className="w-6 h-6" />
-                    <span className="font-semibold">Unprotected</span>
-                  </div>
-                  <p className="text-4xl font-bold">{summary.sitesWithoutRobots}</p>
-                  <p className="text-orange-100 text-sm">{((summary.sitesWithoutRobots / summary.total) * 100).toFixed(1)}% no robots.txt</p>
-                </div>
-                
-                <div className="bg-gradient-to-br from-purple-500 to-indigo-600 p-6 rounded-xl text-white shadow-lg hover:shadow-xl transition-all duration-200 hover:scale-105">
-                  <div className="flex items-center gap-3 mb-3">
-                    <BarChart3 className="w-6 h-6" />
-                    <span className="font-semibold">Avg Score</span>
-                  </div>
-                  <p className="text-4xl font-bold">{summary.averageProtectionScore}</p>
-                  <p className="text-purple-100 text-sm">protection level</p>
-                </div>
-              </div>
-            </div>
-
-            {/* Advanced Protection Methods */}
-            <div className="bg-gradient-to-r from-indigo-50 to-purple-50 p-6 rounded-2xl shadow-lg border border-indigo-200">
-              <h3 className="text-2xl font-bold text-gray-900 mb-4 flex items-center gap-2">
-                🔬 Advanced Protection Methods
-              </h3>
-              <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-                <div className="text-center bg-white p-4 rounded-xl shadow-md">
-                  <div className="text-3xl font-bold text-green-600">{summary.homepagesChecked}</div>
-                  <div className="text-sm text-gray-600">Homepages Analyzed</div>
-                  <div className="text-xs text-green-500">{summary.homepageSuccessRate}% success</div>
-                </div>
-                <div className="text-center bg-white p-4 rounded-xl shadow-md">
-                  <div className="text-3xl font-bold text-indigo-600">{summary.sitesWithNoAIMeta}</div>
-                  <div className="text-sm text-gray-600">NoAI Meta Tags</div>
-                  <div className="text-xs text-indigo-500">{summary.percentageWithNoAIMeta}%</div>
-                </div>
-                <div className="text-center bg-white p-4 rounded-xl shadow-md">
-                  <div className="text-3xl font-bold text-indigo-600">{summary.sitesWithNoImageAIMeta}</div>
-                  <div className="text-sm text-gray-600">NoImageAI Tags</div>
-                </div>
-                <div className="text-center bg-white p-4 rounded-xl shadow-md">
-                  <div className="text-3xl font-bold text-pink-600">{summary.sitesWithXRobotsNoAI}</div>
-                  <div className="text-sm text-gray-600">X-Robots NoAI</div>
-                </div>
-                <div className="text-center bg-white p-4 rounded-xl shadow-md">
-                  <div className="text-3xl font-bold text-pink-600">{summary.sitesWithXRobotsNoImageAI}</div>
-                  <div className="text-sm text-gray-600">X-Robots Images</div>
-                </div>
-              </div>
-            </div>
-
-            {/* Charts Section */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              {/* Category Breakdown */}
-              <div className="bg-white/90 backdrop-blur-sm rounded-2xl p-6 shadow-xl border border-white/20">
-                <h3 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
-                  📈 Bot Category Breakdown
-                </h3>
-                <p className="text-sm text-gray-600 mb-4">Sites blocking each bot category</p>
-                <div className="space-y-4">
-                  {summary.categoryAnalysis.map((cat: any) => (
-                    <div key={cat.category} className="bg-gray-50 p-3 rounded-lg">
-                      <div className="flex justify-between items-center text-sm mb-2">
-                        <span className={`font-medium px-2 py-1 rounded ${getBotCategoryColor(cat.category)}`}>
-                          {cat.category}
-                        </span>
-                        <span className="text-gray-600 font-semibold">{cat.count} sites ({cat.percentage}%)</span>
-                      </div>
-                      <div className="w-full bg-gray-200 rounded-full h-3">
-                        <div 
-                          className="bg-gradient-to-r from-blue-500 to-purple-500 h-3 rounded-full transition-all duration-500" 
-                          style={{ width: `${cat.percentage}%` }}
-                        ></div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Top Blocked Bots */}
-              <div className="bg-white/90 backdrop-blur-sm rounded-2xl p-6 shadow-xl border border-white/20">
-                <h3 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
-                  🏆 Most Blocked Bots
-                </h3>
-                <div className="space-y-3">
-                  {summary.topBlockedBots.slice(0, 8).map((bot: any, index: number) => (
-                    <div key={bot.bot} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
-                      <div className="flex items-center gap-3">
-                        <div className={`w-8 h-8 rounded-full bg-gradient-to-r ${
-                          index < 3 ? 'from-yellow-400 to-orange-500' : 'from-gray-400 to-gray-500'
-                        } flex items-center justify-center text-white font-bold text-sm`}>
-                          {index + 1}
-                        </div>
-                        <div>
-                          <span className="font-medium text-gray-800">{bot.bot}</span>
-                          <span className="text-sm text-gray-500 ml-2">({bot.owner})</span>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${getBotCategoryColor(bot.category)}`}>
-                          {bot.category}
-                        </span>
-                        <span className="font-bold text-lg">{bot.count}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Results Table */}
-        {results.length > 0 && !analyzing && (
-          <div className="bg-white/90 backdrop-blur-sm rounded-2xl shadow-xl border border-white/20 overflow-hidden">
-            {/* Search and Filter Controls */}
-            <div className="p-6 bg-gradient-to-r from-gray-50 to-blue-50 border-b border-gray-200">
-              <h2 className="text-2xl font-bold text-gray-900 mb-4 flex items-center gap-2">
-                📋 Detailed Analysis Results
-              </h2>
-              <div className="flex flex-wrap gap-4 items-center">
-                {/* Search */}
-                <div className="relative flex-1 min-w-64">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-                  <input
-                    type="text"
-                    placeholder="Search outlets or countries..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
-                </div>
-                
-                {/* Filter Level */}
-                <select
-                  value={filterLevel}
-                  onChange={(e) => setFilterLevel(e.target.value)}
-                  className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+        {/* Single Domain Mode */}
+        {mode === 'single' && (
+          <div className="space-y-8">
+            <div className="bg-gradient-to-r from-white to-blue-50/50 border-2 border-dashed border-blue-300 rounded-2xl p-8 text-center shadow-lg backdrop-blur-sm">
+              <Zap className="mx-auto text-blue-500 mb-4" size={48} />
+              <h2 className="text-2xl font-bold text-gray-900 mb-4">Check Single Domain</h2>
+              <div className="max-w-md mx-auto space-y-4">
+                <input
+                  type="text"
+                  placeholder="Enter domain (e.g., example.com)"
+                  value={singleDomain}
+                  onChange={(e) => setSingleDomain(e.target.value)}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-lg"
+                  onKeyPress={(e) => e.key === 'Enter' && analyzeSingleDomain()}
+                />
+                <button
+                  onClick={analyzeSingleDomain}
+                  disabled={!singleDomain.trim() || analyzingSingle}
+                  className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white px-8 py-3 rounded-lg hover:from-blue-700 hover:to-purple-700 disabled:from-gray-400 disabled:to-gray-500 transition-all duration-200 font-bold shadow-lg hover:shadow-xl transform hover:scale-105 disabled:transform-none"
                 >
-                  <option value="all">All Levels</option>
-                  <option value="fortress">🔴 Fortress</option>
-                  <option value="comprehensive">🟠 Comprehensive</option>
-                  <option value="moderate">🟡 Moderate</option>
-                  <option value="basic">🔵 Basic</option>
-                  <option value="none">⚪ None</option>
-                </select>
-                
-                {/* Protected Only Toggle */}
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={showProtectedOnly}
-                    onChange={(e) => setShowProtectedOnly(e.target.checked)}
-                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                  />
-                  <span className="text-sm font-medium text-gray-700">Protected Only</span>
-                </label>
-                
-                <div className="text-sm text-gray-600">
-                  Showing {filteredAndSortedResults.length} of {results.length} sites
-                </div>
+                  {analyzingSingle ? '🔍 Analyzing...' : '🚀 Analyze Domain'}
+                </button>
               </div>
             </div>
 
-            {/* Table */}
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-gradient-to-r from-gray-100 to-blue-100">
-                  <tr>
-                    <th className="px-4 py-4 text-left text-sm font-bold text-gray-900">Country</th>
-                    <th className="px-4 py-4 text-left text-sm font-bold text-gray-900">Outlet</th>
-                    <th className="px-4 py-4 text-left text-sm font-bold text-gray-900">Pages Checked</th>
-                    <th className="px-4 py-4 text-left text-sm font-bold text-gray-900">Blocks AI</th>
-                    
-                    <th 
-                      className="px-4 py-4 text-left text-sm font-bold text-gray-900 cursor-pointer hover:bg-blue-200 transition-colors"
-                      onClick={() => handleSort('protectionScore')}
-                    >
-                      <div className="flex items-center gap-1">
-                        🛡️ Score {getSortIcon('protectionScore')}
-                      </div>
-                    </th>
-                    
-                    <th 
-                      className="px-4 py-4 text-left text-sm font-bold text-gray-900 cursor-pointer hover:bg-blue-200 transition-colors"
-                      onClick={() => handleSort('aiBotsBlockedCount')}
-                    >
-                      <div className="flex items-center gap-1">
-                        🤖 Bots {getSortIcon('aiBotsBlockedCount')}
-                      </div>
-                    </th>
-                    
-                    <th 
-                      className="px-4 py-4 text-left text-sm font-bold text-gray-900 cursor-pointer hover:bg-blue-200 transition-colors"
-                      onClick={() => handleSort('hasNoAIMetaTag')}
-                    >
-                      <div className="flex items-center gap-1">
-                        🏷️ Meta {getSortIcon('hasNoAIMetaTag')}
-                      </div>
-                    </th>
-                    
-                    <th 
-                      className="px-4 py-4 text-left text-sm font-bold text-gray-900 cursor-pointer hover:bg-blue-200 transition-colors"
-                      onClick={() => handleSort('hasXRobotsNoAI')}
-                    >
-                      <div className="flex items-center gap-1">
-                        📡 Headers {getSortIcon('hasXRobotsNoAI')}
-                      </div>
-                    </th>
-                    
-                    <th className="px-4 py-4 text-left text-sm font-bold text-gray-900">Blocked Bots</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-200">
-                  {filteredAndSortedResults.map((result, index) => {
-                    const levelInfo = getProtectionLevelInfo(result.protectionScore);
-                    return (
-                      <tr 
-                        key={index} 
-                        className={`hover:bg-gradient-to-r hover:from-blue-50 hover:to-purple-50 transition-all duration-200 border-l-4 ${levelInfo.bgColor} border-l-${levelInfo.gradient.split(' ')[1].split('-')[1]}-400`}
-                      >
-                        <td className="px-4 py-4 text-sm text-gray-700 font-medium">{result.country}</td>
-                        <td className="px-4 py-4 text-sm font-bold text-gray-900">{result.outlet}</td>
-                        <td className="px-4 py-4 text-sm">
-                          <div className="flex flex-col gap-1">
-                            {result.robotsExists ? (
-                              <a href={result.fetchUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800 flex items-center gap-1 text-xs font-medium hover:underline">
-                                <LinkIcon size={12} /> robots.txt
-                              </a>
-                            ) : (
-                              <span className="text-red-500 text-xs">❌ No robots.txt</span>
-                            )}
-                            {result.homepageChecked && result.homepageUrl ? (
-                              <a href={result.homepageUrl} target="_blank" rel="noopener noreferrer" className="text-green-600 hover:text-green-800 flex items-center gap-1 text-xs font-medium hover:underline">
-                                <LinkIcon size={12} /> homepage
-                              </a>
-                            ) : (
-                              <span className="text-orange-500 text-xs">⚠️ Homepage failed</span>
-                            )}
-                          </div>
-                        </td>
-                        <td className="px-4 py-4">
-                          <span className={`inline-flex px-3 py-1 text-xs font-bold rounded-full ${
-                            result.blocksAI ? 'bg-emerald-500 text-white shadow-lg' : 'bg-rose-500 text-white shadow-lg'
-                          }`}>
-                            {result.blocksAI ? '✅ Yes' : '❌ No'}
-                          </span>
-                        </td>
-                        <td className="px-4 py-4">
-                          <div className="flex items-center gap-2">
-                            <span className={`inline-flex px-3 py-1 text-sm font-bold rounded-full text-white bg-gradient-to-r ${levelInfo.gradient} shadow-lg`}>
-                              {result.protectionScore}
-                            </span>
-                            <span className="text-xs text-gray-500">{levelInfo.level}</span>
-                          </div>
-                        </td>
-                        <td className="px-4 py-4 text-center">
-                          <span className="text-lg font-bold text-gray-900">{result.aiBotsBlockedCount}</span>
-                        </td>
-                        <td className="px-4 py-4">
-                          <div className="flex flex-col gap-1">
-                            {result.hasNoAIMetaTag && <span className="inline-flex px-2 py-1 text-xs bg-indigo-100 text-indigo-800 rounded-full font-medium">NoAI</span>}
-                            {result.hasNoImageAIMetaTag && <span className="inline-flex px-2 py-1 text-xs bg-indigo-100 text-indigo-800 rounded-full font-medium">NoImageAI</span>}
-                            {!result.hasNoAIMetaTag && !result.hasNoImageAIMetaTag && <span className="text-gray-400">-</span>}
-                          </div>
-                        </td>
-                        <td className="px-4 py-4">
-                          <div className="flex flex-col gap-1">
-                            {result.hasXRobotsNoAI && <span className="inline-flex px-2 py-1 text-xs bg-pink-100 text-pink-800 rounded-full font-medium">X-NoAI</span>}
-                            {result.hasXRobotsNoImageAI && <span className="inline-flex px-2 py-1 text-xs bg-pink-100 text-pink-800 rounded-full font-medium">X-NoImageAI</span>}
-                            {!result.hasXRobotsNoAI && !result.hasXRobotsNoImageAI && <span className="text-gray-400">-</span>}
-                          </div>
-                        </td>
-                        <td className="px-4 py-4 text-sm text-gray-600 max-w-xs">
-                          {result.blockedBotsList.length > 0 ? (
-                            <div className="flex flex-wrap gap-1">
-                              {result.blockedBotsList.slice(0, 3).map(bot => (
-                                <span key={bot} className="px-2 py-1 bg-gray-100 text-gray-700 rounded text-xs font-medium">
-                                  {bot}
-                                </span>
-                              ))}
-                              {result.blockedBotsList.length > 3 && (
-                                <span className="px-2 py-1 bg-gray-200 text-gray-600 rounded text-xs">
-                                  +{result.blockedBotsList.length - 3} more
-                                </span>
-                              )}
-                            </div>
-                          ) : (
-                            <span className="text-gray-400">None</span>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+            {/* Single Result */}
+            {singleResult && renderSingleResult()}
+          </div>
+        )}
+
+        {/* Bulk Mode */}
+        {mode === 'bulk' && (
+          <div className="space-y-8">
+            {/* File Upload */}
+            <div className="bg-gradient-to-r from-white to-blue-50/50 border-2 border-dashed border-blue-300 rounded-2xl p-8 text-center shadow-lg backdrop-blur-sm">
+              <Upload className="mx-auto text-blue-500 mb-4" size={48} />
+              <div className="mb-4">
+                <label className="cursor-pointer">
+                  <span className="bg-gradient-to-r from-blue-600 to-purple-600 text-white px-8 py-3 rounded-xl hover:from-blue-700 hover:to-purple-700 transition-all duration-200 font-semibold shadow-lg hover:shadow-xl transform hover:scale-105">
+                    📁 Upload CSV File
+                  </span>
+                  <input type="file" accept=".csv" onChange={handleFileUpload} className="hidden" />
+                </label>
+              </div>
+              {file && (
+                <div className="bg-green-50 border border-green-200 rounded-lg p-3 inline-block">
+                  <p className="text-green-700 font-medium">✅ {file.name}</p>
+                  <p className="text-green-600 text-sm">{sites.length} outlets loaded</p>
+                </div>
+              )}
+              <p className="text-sm text-gray-500 mt-3">Expected format: Country, Outlet, Robots.txt columns</p>
             </div>
+
+            {/* Analyze All Button */}
+            {sites.length > 0 && (
+              <div className="text-center">
+                <button 
+                  onClick={analyzeAllSites} 
+                  disabled={analyzing} 
+                  className="flex items-center justify-center w-full sm:w-auto mx-auto gap-3 bg-gradient-to-r from-green-500 to-emerald-600 text-white px-10 py-4 rounded-xl hover:from-green-600 hover:to-emerald-700 disabled:from-gray-400 disabled:to-gray-500 transition-all duration-200 text-lg font-bold shadow-lg hover:shadow-xl transform hover:scale-105 disabled:transform-none"
+                >
+                  <Play size={24} />
+                  {analyzing ? `🔍 Analyzing... ${Math.round(progress)}%` : '🚀 Analyze All Sites'}
+                </button>
+              </div>
+            )}
+
+            {/* Progress Bar */}
+            {analyzing && (
+              <div>
+                <div className="w-full bg-gray-200 rounded-full h-4 shadow-inner">
+                  <div 
+                    className="bg-gradient-to-r from-green-500 to-blue-500 h-4 rounded-full transition-all duration-300 shadow-sm" 
+                    style={{ width: `${progress}%` }}
+                  ></div>
+                </div>
+                <p className="text-center mt-2 text-sm text-gray-600">Processing {Math.round(progress)}% complete</p>
+              </div>
+            )}
+            
+            {/* Summary Dashboard */}
+            {summary && (
+              <div className="space-y-8">
+                {/* Main Stats */}
+                <div className="bg-white/80 backdrop-blur-sm rounded-2xl p-6 shadow-xl border border-white/20">
+                  <h2 className="text-3xl font-bold text-gray-900 mb-6 pb-2 border-b-2 border-gradient-to-r from-blue-500 to-purple-500">
+                    📊 Analysis Overview
+                  </h2>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+                    <div className="bg-gradient-to-br from-blue-500 to-blue-600 p-6 rounded-xl text-white shadow-lg hover:shadow-xl transition-all duration-200 hover:scale-105">
+                      <div className="flex items-center gap-3 mb-3">
+                        <Globe className="w-6 h-6" />
+                        <span className="font-semibold">Total Sites</span>
+                      </div>
+                      <p className="text-4xl font-bold">{summary.total}</p>
+                    </div>
+                    
+                    <div className="bg-gradient-to-br from-emerald-500 to-emerald-600 p-6 rounded-xl text-white shadow-lg hover:shadow-xl transition-all duration-200 hover:scale-105">
+                      <div className="flex items-center gap-3 mb-3">
+                        <Shield className="w-6 h-6" />
+                        <span className="font-semibold">Protected Sites</span>
+                      </div>
+                      <p className="text-4xl font-bold">{summary.sitesBlockingAICount}</p>
+                      <p className="text-emerald-100 text-sm">{summary.percentageBlockingAI}% of total</p>
+                    </div>
+                    
+                    <div className="bg-gradient-to-br from-amber-500 to-orange-500 p-6 rounded-xl text-white shadow-lg hover:shadow-xl transition-all duration-200 hover:scale-105">
+                      <div className="flex items-center gap-3 mb-3">
+                        <AlertCircle className="w-6 h-6" />
+                        <span className="font-semibold">Unprotected</span>
+                      </div>
+                      <p className="text-4xl font-bold">{summary.sitesWithoutRobots}</p>
+                      <p className="text-orange-100 text-sm">{((summary.sitesWithoutRobots / summary.total) * 100).toFixed(1)}% no robots.txt</p>
+                    </div>
+                    
+                    <div className="bg-gradient-to-br from-purple-500 to-indigo-600 p-6 rounded-xl text-white shadow-lg hover:shadow-xl transition-all duration-200 hover:scale-105">
+                      <div className="flex items-center gap-3 mb-3">
+                        <BarChart3 className="w-6 h-6" />
+                        <span className="font-semibold">Avg Score</span>
+                      </div>
+                      <p className="text-4xl font-bold">{summary.averageProtectionScore}</p>
+                      <p className="text-purple-100 text-sm">protection level</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Advanced Protection Methods */}
+                <div className="bg-gradient-to-r from-indigo-50 to-purple-50 p-6 rounded-2xl shadow-lg border border-indigo-200">
+                  <h3 className="text-2xl font-bold text-gray-900 mb-4 flex items-center gap-2">
+                    🔬 Advanced Protection Methods
+                  </h3>
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                    <div className="text-center bg-white p-4 rounded-xl shadow-md">
+                      <div className="text-3xl font-bold text-green-600">{summary.homepagesChecked}</div>
+                      <div className="text-sm text-gray-600">Homepages Analyzed</div>
+                      <div className="text-xs text-green-500">{summary.homepageSuccessRate}% success</div>
+                    </div>
+                    <div className="text-center bg-white p-4 rounded-xl shadow-md">
+                      <div className="text-3xl font-bold text-indigo-600">{summary.sitesWithNoAIMeta}</div>
+                      <div className="text-sm text-gray-600">NoAI Meta Tags</div>
+                      <div className="text-xs text-indigo-500">{summary.percentageWithNoAIMeta}%</div>
+                    </div>
+                    <div className="text-center bg-white p-4 rounded-xl shadow-md">
+                      <div className="text-3xl font-bold text-indigo-600">{summary.sitesWithNoImageAIMeta}</div>
+                      <div className="text-sm text-gray-600">NoImageAI Tags</div>
+                    </div>
+                    <div className="text-center bg-white p-4 rounded-xl shadow-md">
+                      <div className="text-3xl font-bold text-pink-600">{summary.sitesWithXRobotsNoAI}</div>
+                      <div className="text-sm text-gray-600">X-Robots NoAI</div>
+                    </div>
+                    <div className="text-center bg-white p-4 rounded-xl shadow-md">
+                      <div className="text-3xl font-bold text-pink-600">{summary.sitesWithXRobotsNoImageAI}</div>
+                      <div className="text-sm text-gray-600">X-Robots Images</div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Charts Section */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                  {/* Category Breakdown */}
+                  <div className="bg-white/90 backdrop-blur-sm rounded-2xl p-6 shadow-xl border border-white/20">
+                    <h3 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
+                      📈 Bot Category Breakdown
+                    </h3>
+                    <p className="text-sm text-gray-600 mb-4">Sites blocking each bot category</p>
+                    <div className="space-y-4">
+                      {summary.categoryAnalysis.map((cat: any) => (
+                        <div key={cat.category} className="bg-gray-50 p-3 rounded-lg">
+                          <div className="flex justify-between items-center text-sm mb-2">
+                            <span className={`font-medium px-2 py-1 rounded ${getBotCategoryColor(cat.category)}`}>
+                              {cat.category}
+                            </span>
+                            <span className="text-gray-600 font-semibold">{cat.count} sites ({cat.percentage}%)</span>
+                          </div>
+                          <div className="w-full bg-gray-200 rounded-full h-3">
+                            <div 
+                              className="bg-gradient-to-r from-blue-500 to-purple-500 h-3 rounded-full transition-all duration-500" 
+                              style={{ width: `${cat.percentage}%` }}
+                            ></div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Top Blocked Bots */}
+                  <div className="bg-white/90 backdrop-blur-sm rounded-2xl p-6 shadow-xl border border-white/20">
+                    <h3 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
+                      🏆 Most Blocked Bots
+                    </h3>
+                    <div className="space-y-3">
+                      {summary.topBlockedBots.slice(0, 8).map((bot: any, index: number) => (
+                        <div key={bot.bot} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
+                          <div className="flex items-center gap-3">
+                            <div className={`w-8 h-8 rounded-full bg-gradient-to-r ${
+                              index < 3 ? 'from-yellow-400 to-orange-500' : 'from-gray-400 to-gray-500'
+                            } flex items-center justify-center text-white font-bold text-sm`}>
+                              {index + 1}
+                            </div>
+                            <div>
+                              <span className="font-medium text-gray-800">{bot.bot}</span>
+                              <span className="text-sm text-gray-500 ml-2">({bot.owner})</span>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <span className={`px-2 py-1 rounded-full text-xs font-medium ${getBotCategoryColor(bot.category)}`}>
+                              {bot.category}
+                            </span>
+                            <span className="font-bold text-lg">{bot.count}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Results Table */}
+            {results.length > 0 && !analyzing && (
+              <div className="bg-white/90 backdrop-blur-sm rounded-2xl shadow-xl border border-white/20 overflow-hidden">
+                {/* Search and Filter Controls */}
+                <div className="p-6 bg-gradient-to-r from-gray-50 to-blue-50 border-b border-gray-200">
+                  <h2 className="text-2xl font-bold text-gray-900 mb-4 flex items-center gap-2">
+                    📋 Detailed Analysis Results
+                  </h2>
+                  <div className="flex flex-wrap gap-4 items-center">
+                    {/* Search */}
+                    <div className="relative flex-1 min-w-64">
+                      <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                      <input
+                        type="text"
+                        placeholder="Search outlets or countries..."
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                    </div>
+                    
+                    {/* Filter Level */}
+                    <select
+                      value={filterLevel}
+                      onChange={(e) => setFilterLevel(e.target.value)}
+                      className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    >
+                      <option value="all">All Levels</option>
+                      <option value="fortress">🔴 Fortress</option>
+                      <option value="comprehensive">🟠 Comprehensive</option>
+                      <option value="moderate">🟡 Moderate</option>
+                      <option value="basic">🔵 Basic</option>
+                      <option value="none">⚪ None</option>
+                    </select>
+                    
+                    {/* Protected Only Toggle */}
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={showProtectedOnly}
+                        onChange={(e) => setShowProtectedOnly(e.target.checked)}
+                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span className="text-sm font-medium text-gray-700">Protected Only</span>
+                    </label>
+                    
+                    <div className="text-sm text-gray-600">
+                      Showing {filteredAndSortedResults.length} of {results.length} sites
+                    </div>
+                  </div>
+                </div>
+
+                {/* Table */}
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead className="bg-gradient-to-r from-gray-100 to-blue-100">
+                      <tr>
+                        <th className="px-4 py-4 text-left text-sm font-bold text-gray-900">Country</th>
+                        <th className="px-4 py-4 text-left text-sm font-bold text-gray-900">Outlet</th>
+                        <th className="px-4 py-4 text-left text-sm font-bold text-gray-900">Pages Checked</th>
+                        <th className="px-4 py-4 text-left text-sm font-bold text-gray-900">Blocks AI</th>
+                        
+                        <th 
+                          className="px-4 py-4 text-left text-sm font-bold text-gray-900 cursor-pointer hover:bg-blue-200 transition-colors"
+                          onClick={() => handleSort('protectionScore')}
+                        >
+                          <div className="flex items-center gap-1">
+                            🛡️ Score {getSortIcon('protectionScore')}
+                          </div>
+                        </th>
+                        
+                        <th 
+                          className="px-4 py-4 text-left text-sm font-bold text-gray-900 cursor-pointer hover:bg-blue-200 transition-colors"
+                          onClick={() => handleSort('aiBotsBlockedCount')}
+                        >
+                          <div className="flex items-center gap-1">
+                            🤖 Bots {getSortIcon('aiBotsBlockedCount')}
+                          </div>
+                        </th>
+                        
+                        <th 
+                          className="px-4 py-4 text-left text-sm font-bold text-gray-900 cursor-pointer hover:bg-blue-200 transition-colors"
+                          onClick={() => handleSort('hasNoAIMetaTag')}
+                        >
+                          <div className="flex items-center gap-1">
+                            🏷️ Meta {getSortIcon('hasNoAIMetaTag')}
+                          </div>
+                        </th>
+                        
+                        <th 
+                          className="px-4 py-4 text-left text-sm font-bold text-gray-900 cursor-pointer hover:bg-blue-200 transition-colors"
+                          onClick={() => handleSort('hasXRobotsNoAI')}
+                        >
+                          <div className="flex items-center gap-1">
+                            📡 Headers {getSortIcon('hasXRobotsNoAI')}
+                          </div>
+                        </th>
+                        
+                        <th className="px-4 py-4 text-left text-sm font-bold text-gray-900">Blocked Bots</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200">
+                      {filteredAndSortedResults.map((result, index) => {
+                        const levelInfo = getProtectionLevelInfo(result.protectionScore);
+                        return (
+                          <tr 
+                            key={index} 
+                            className={`hover:bg-gradient-to-r hover:from-blue-50 hover:to-purple-50 transition-all duration-200 border-l-4 ${levelInfo.bgColor} border-l-${levelInfo.gradient.split(' ')[1].split('-')[1]}-400`}
+                          >
+                            <td className="px-4 py-4 text-sm text-gray-700 font-medium">{result.country}</td>
+                            <td className="px-4 py-4 text-sm font-bold text-gray-900">{result.outlet}</td>
+                            <td className="px-4 py-4 text-sm">
+                              <div className="flex flex-col gap-1">
+                                {result.robotsExists ? (
+                                  <a href={result.fetchUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800 flex items-center gap-1 text-xs font-medium hover:underline">
+                                    <LinkIcon size={12} /> robots.txt
+                                  </a>
+                                ) : (
+                                  <span className="text-red-500 text-xs">❌ No robots.txt</span>
+                                )}
+                                {result.homepageChecked && result.homepageUrl ? (
+                                  <a href={result.homepageUrl} target="_blank" rel="noopener noreferrer" className="text-green-600 hover:text-green-800 flex items-center gap-1 text-xs font-medium hover:underline">
+                                    <LinkIcon size={12} /> homepage
+                                  </a>
+                                ) : (
+                                  <span className="text-orange-500 text-xs">⚠️ Homepage failed</span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-4 py-4">
+                              <span className={`inline-flex px-3 py-1 text-xs font-bold rounded-full ${
+                                result.blocksAI ? 'bg-emerald-500 text-white shadow-lg' : 'bg-rose-500 text-white shadow-lg'
+                              }`}>
+                                {result.blocksAI ? '✅ Yes' : '❌ No'}
+                              </span>
+                            </td>
+                            <td className="px-4 py-4">
+                              <div className="flex items-center gap-2">
+                                <span className={`inline-flex px-3 py-1 text-sm font-bold rounded-full text-white bg-gradient-to-r ${levelInfo.gradient} shadow-lg`}>
+                                  {result.protectionScore}
+                                </span>
+                                <span className="text-xs text-gray-500">{levelInfo.level}</span>
+                              </div>
+                            </td>
+                            <td className="px-4 py-4 text-center">
+                              <span className="text-lg font-bold text-gray-900">{result.aiBotsBlockedCount}</span>
+                            </td>
+                            <td className="px-4 py-4">
+                              <div className="flex flex-col gap-1">
+                                {result.hasNoAIMetaTag && <span className="inline-flex px-2 py-1 text-xs bg-indigo-100 text-indigo-800 rounded-full font-medium">NoAI</span>}
+                                {result.hasNoImageAIMetaTag && <span className="inline-flex px-2 py-1 text-xs bg-indigo-100 text-indigo-800 rounded-full font-medium">NoImageAI</span>}
+                                {!result.hasNoAIMetaTag && !result.hasNoImageAIMetaTag && <span className="text-gray-400">-</span>}
+                              </div>
+                            </td>
+                            <td className="px-4 py-4">
+                              <div className="flex flex-col gap-1">
+                                {result.hasXRobotsNoAI && <span className="inline-flex px-2 py-1 text-xs bg-pink-100 text-pink-800 rounded-full font-medium">X-NoAI</span>}
+                                {result.hasXRobotsNoImageAI && <span className="inline-flex px-2 py-1 text-xs bg-pink-100 text-pink-800 rounded-full font-medium">X-NoImageAI</span>}
+                                {!result.hasXRobotsNoAI && !result.hasXRobotsNoImageAI && <span className="text-gray-400">-</span>}
+                              </div>
+                            </td>
+                            <td className="px-4 py-4 text-sm text-gray-600 max-w-xs">
+                              {result.blockedBotsList.length > 0 ? (
+                                <div className="flex flex-wrap gap-1">
+                                  {result.blockedBotsList.slice(0, 3).map(bot => (
+                                    <span key={bot} className="px-2 py-1 bg-gray-100 text-gray-700 rounded text-xs font-medium">
+                                      {bot}
+                                    </span>
+                                  ))}
+                                  {result.blockedBotsList.length > 3 && (
+                                    <span className="px-2 py-1 bg-gray-200 text-gray-600 rounded text-xs">
+                                      +{result.blockedBotsList.length - 3} more
+                                    </span>
+                                  )}
+                                </div>
+                              ) : (
+                                <span className="text-gray-400">None</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
