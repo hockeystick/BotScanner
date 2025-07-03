@@ -13,6 +13,13 @@ type FetchResult = {
   status: string;
   error: boolean;
   url: string;
+  headers?: Record<string, string>;
+};
+
+type PageFetchResult = {
+  content: string;
+  headers: Record<string, string>;
+  url: string;
 };
 
 type AnalysisResult = {
@@ -26,6 +33,14 @@ type AnalysisResult = {
   hasSitemaps: boolean;
   hasCrawlDelay: boolean;
   fetchUrl?: string;
+  // New meta tag and header analysis
+  hasNoAIMetaTag: boolean;
+  hasNoImageAIMetaTag: boolean;
+  hasXRobotsNoAI: boolean;
+  hasXRobotsNoImageAI: boolean;
+  metaTagsFound: string[];
+  xRobotsTagsFound: string[];
+  protectionScore: number;
 };
 
 const BotScannerPage = () => {
@@ -139,9 +154,120 @@ const BotScannerPage = () => {
     }
   };
 
+  const fetchPageContent = async (url: string): Promise<PageFetchResult | null> => {
+    if (!url || url.trim() === '') return null;
+    
+    let cleanUrl = url.trim();
+    if (!cleanUrl.startsWith('http')) cleanUrl = `https://${cleanUrl}`;
+    
+    try {
+      const urlObject = new URL(cleanUrl);
+      const pageUrl = `${urlObject.protocol}//${urlObject.hostname}/`;
+      const proxyUrl = `/api/fetch-robots?url=${encodeURIComponent(pageUrl)}&type=page`;
+      const response = await fetch(proxyUrl);
+      
+      if (response.ok) {
+        const data = await response.json();
+        return {
+          content: data.content,
+          headers: data.headers,
+          url: pageUrl
+        };
+      }
+    } catch (error) {
+      console.warn('Failed to fetch page content:', error);
+    }
+    return null;
+  };
+
+  const parseMetaTags = (htmlContent: string): { hasNoAI: boolean; hasNoImageAI: boolean; foundTags: string[] } => {
+    const foundTags: string[] = [];
+    let hasNoAI = false;
+    let hasNoImageAI = false;
+
+    // Look for robots meta tags
+    const metaRegex = /<meta\s+name=["']robots["']\s+content=["']([^"']+)["'][^>]*>/gi;
+    let match;
+    
+    while ((match = metaRegex.exec(htmlContent)) !== null) {
+      const content = match[1].toLowerCase();
+      foundTags.push(match[1]);
+      
+      if (content.includes('noai')) {
+        hasNoAI = true;
+      }
+      if (content.includes('noimageai')) {
+        hasNoImageAI = true;
+      }
+    }
+
+    return { hasNoAI, hasNoImageAI, foundTags };
+  };
+
+  const parseXRobotsTags = (headers: Record<string, string>): { hasNoAI: boolean; hasNoImageAI: boolean; foundTags: string[] } => {
+    const foundTags: string[] = [];
+    let hasNoAI = false;
+    let hasNoImageAI = false;
+
+    // Check for X-Robots-Tag headers
+    const xRobotsTag = headers['x-robots-tag'];
+    if (xRobotsTag) {
+      foundTags.push(xRobotsTag);
+      const tagLower = xRobotsTag.toLowerCase();
+      
+      if (tagLower.includes('noai')) {
+        hasNoAI = true;
+      }
+      if (tagLower.includes('noimageai')) {
+        hasNoImageAI = true;
+      }
+    }
+
+    return { hasNoAI, hasNoImageAI, foundTags };
+  };
+
+  const calculateProtectionScore = (analysis: Omit<AnalysisResult, 'protectionScore'>): number => {
+    let score = 0;
+    
+    // Basic robots.txt blocking (1-3 points each)
+    score += analysis.aiBotsBlockedCount;
+    
+    // Meta tags (4 points each)
+    if (analysis.hasNoAIMetaTag) score += 4;
+    if (analysis.hasNoImageAIMetaTag) score += 4;
+    
+    // HTTP headers (5 points each)
+    if (analysis.hasXRobotsNoAI) score += 5;
+    if (analysis.hasXRobotsNoImageAI) score += 5;
+    
+    // Bonus for comprehensive approach
+    if (analysis.robotsExists && analysis.blocksAI && (analysis.hasNoAIMetaTag || analysis.hasXRobotsNoAI)) {
+      score += 3; // Multi-layer protection bonus
+    }
+
+    return score;
+  };
+
   const parseRobotsTxt = (content: string, country: string, outlet: string): AnalysisResult => {
     if (!content || content.trim() === '') {
-      return { country, outlet, robotsExists: false, blocksAI: false, aiBotsBlockedCount: 0, blockingStrategy: 'None', blockedBotsList: [], hasSitemaps: false, hasCrawlDelay: false };
+      return { 
+        country, 
+        outlet, 
+        robotsExists: false, 
+        blocksAI: false, 
+        aiBotsBlockedCount: 0, 
+        blockingStrategy: 'None', 
+        blockedBotsList: [], 
+        hasSitemaps: false, 
+        hasCrawlDelay: false,
+        hasNoAIMetaTag: false,
+        hasNoImageAIMetaTag: false,
+        hasXRobotsNoAI: false,
+        hasXRobotsNoImageAI: false,
+        metaTagsFound: [],
+        xRobotsTagsFound: [],
+        protectionScore: 0
+      };
     }
 
     const lines = content.replace(/\r\n/g, '\n').split('\n');
@@ -181,7 +307,27 @@ const BotScannerPage = () => {
     else if (aiBotsBlockedCount > 3) blockingStrategy = 'Moderate';
     else if (aiBotsBlockedCount > 0) blockingStrategy = 'Basic';
 
-    return { country, outlet, robotsExists: true, blocksAI: aiBotsBlockedCount > 0, aiBotsBlockedCount, blockingStrategy, blockedBotsList: Array.from(blockedBots).sort(), hasSitemaps, hasCrawlDelay };
+    const baseResult = { 
+      country, 
+      outlet, 
+      robotsExists: true, 
+      blocksAI: aiBotsBlockedCount > 0, 
+      aiBotsBlockedCount, 
+      blockingStrategy, 
+      blockedBotsList: Array.from(blockedBots).sort(), 
+      hasSitemaps, 
+      hasCrawlDelay,
+      hasNoAIMetaTag: false,
+      hasNoImageAIMetaTag: false,
+      hasXRobotsNoAI: false,
+      hasXRobotsNoImageAI: false,
+      metaTagsFound: [],
+      xRobotsTagsFound: []
+    };
+
+    const protectionScore = calculateProtectionScore(baseResult);
+
+    return { ...baseResult, protectionScore };
   };
 
   const analyzeAllSites = async () => {
@@ -195,12 +341,34 @@ const BotScannerPage = () => {
     
     for (let i = 0; i < sites.length; i++) {
       const site = sites[i];
-      const fetchResult = await fetchRobotsTxt(site['Robots.txt'] || '');
-      const analysis = parseRobotsTxt(fetchResult.content, site['Country'] || '', site['Outlet'] || '');
-      analysis.fetchUrl = fetchResult.url;
+      
+      // Fetch robots.txt
+      const robotsFetchResult = await fetchRobotsTxt(site['Robots.txt'] || '');
+      let analysis = parseRobotsTxt(robotsFetchResult.content, site['Country'] || '', site['Outlet'] || '');
+      analysis.fetchUrl = robotsFetchResult.url;
+      
+      // Fetch main page for meta tags and headers
+      const pageResult = await fetchPageContent(site['Robots.txt'] || '');
+      if (pageResult) {
+        // Parse meta tags
+        const metaAnalysis = parseMetaTags(pageResult.content);
+        analysis.hasNoAIMetaTag = metaAnalysis.hasNoAI;
+        analysis.hasNoImageAIMetaTag = metaAnalysis.hasNoImageAI;
+        analysis.metaTagsFound = metaAnalysis.foundTags;
+        
+        // Parse X-Robots-Tag headers
+        const headerAnalysis = parseXRobotsTags(pageResult.headers);
+        analysis.hasXRobotsNoAI = headerAnalysis.hasNoAI;
+        analysis.hasXRobotsNoImageAI = headerAnalysis.hasNoImageAI;
+        analysis.xRobotsTagsFound = headerAnalysis.foundTags;
+        
+        // Recalculate protection score with new data
+        analysis.protectionScore = calculateProtectionScore(analysis);
+      }
+      
       analysisResults.push(analysis);
       setProgress(((i + 1) / sites.length) * 100);
-      await new Promise(resolve => setTimeout(resolve, 50)); // Small delay
+      await new Promise(resolve => setTimeout(resolve, 100)); // Small delay for rate limiting
     }
     
     setResults(analysisResults);
@@ -219,6 +387,15 @@ const BotScannerPage = () => {
     const sitesWithoutRobots = total - sitesWithRobots;
     const sitesWithCrawlDelay = data.filter(d => d.hasCrawlDelay).length;
     const sitesWithSitemaps = data.filter(d => d.hasSitemaps).length;
+
+    // New meta tag and header analysis
+    const sitesWithNoAIMeta = data.filter(d => d.hasNoAIMetaTag).length;
+    const sitesWithNoImageAIMeta = data.filter(d => d.hasNoImageAIMetaTag).length;
+    const sitesWithXRobotsNoAI = data.filter(d => d.hasXRobotsNoAI).length;
+    const sitesWithXRobotsNoImageAI = data.filter(d => d.hasXRobotsNoImageAI).length;
+
+    // Calculate average protection score
+    const averageProtectionScore = total > 0 ? (data.reduce((sum, site) => sum + site.protectionScore, 0) / total).toFixed(1) : 0;
 
     const totalBlockedBotsCount = sitesBlockingAI.reduce((sum, site) => sum + site.aiBotsBlockedCount, 0);
     const averageBotsBlocked = sitesBlockingAICount > 0 ? (totalBlockedBotsCount / sitesBlockingAICount).toFixed(1) : 0;
@@ -259,7 +436,15 @@ const BotScannerPage = () => {
     setSummary({
       total, sitesWithRobots, sitesBlockingAICount, sitesWithoutRobots, sitesWithCrawlDelay,
       sitesWithSitemaps, averageBotsBlocked, topBlockedBots, categoryAnalysis,
-      percentageBlockingAI: (sitesBlockingAICount / total * 100).toFixed(1)
+      percentageBlockingAI: (sitesBlockingAICount / total * 100).toFixed(1),
+      // New summary fields
+      sitesWithNoAIMeta,
+      sitesWithNoImageAIMeta,
+      sitesWithXRobotsNoAI,
+      sitesWithXRobotsNoImageAI,
+      averageProtectionScore,
+      percentageWithNoAIMeta: (sitesWithNoAIMeta / total * 100).toFixed(1),
+      percentageWithHeaders: ((sitesWithXRobotsNoAI + sitesWithXRobotsNoImageAI) / total * 100).toFixed(1)
     });
   };
 
@@ -309,11 +494,35 @@ const BotScannerPage = () => {
         <div className="space-y-12">
           <div>
             <h2 className="text-2xl font-bold text-gray-900 mb-4 pb-2 border-b">Overall Analysis</h2>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
                 <div className="bg-blue-50 p-4 rounded-lg"><div className="flex items-center gap-2 mb-2"><Globe className="text-blue-600" size={20} /><span className="font-medium text-blue-900">Total Outlets</span></div><p className="text-3xl font-bold text-blue-600">{summary.total}</p></div>
                 <div className="bg-green-50 p-4 rounded-lg"><div className="flex items-center gap-2 mb-2"><CheckCircle className="text-green-600" size={20} /><span className="font-medium text-green-900">Sites Blocking AI</span></div><p className="text-3xl font-bold text-green-600">{summary.sitesBlockingAICount}</p><p className="text-sm text-green-700">{summary.percentageBlockingAI}% of total</p></div>
                 <div className="bg-amber-50 p-4 rounded-lg"><div className="flex items-center gap-2 mb-2"><AlertCircle className="text-amber-600" size={20} /><span className="font-medium text-amber-900">No robots.txt</span></div><p className="text-3xl font-bold text-amber-600">{summary.sitesWithoutRobots}</p><p className="text-sm text-amber-700">{((summary.sitesWithoutRobots / summary.total) * 100).toFixed(1)}% of total</p></div>
-                <div className="bg-purple-50 p-4 rounded-lg"><div className="flex items-center gap-2 mb-2"><BarChart3 className="text-purple-600" size={20} /><span className="font-medium text-purple-900">Avg. Bots Blocked</span></div><p className="text-3xl font-bold text-purple-600">{summary.averageBotsBlocked}</p><p className="text-sm text-purple-700">per blocking site</p></div>
+                <div className="bg-purple-50 p-4 rounded-lg"><div className="flex items-center gap-2 mb-2"><BarChart3 className="text-purple-600" size={20} /><span className="font-medium text-purple-900">Avg Protection Score</span></div><p className="text-3xl font-bold text-purple-600">{summary.averageProtectionScore}</p><p className="text-sm text-purple-700">multi-layer protection</p></div>
+            </div>
+            
+            {/* New Meta Tags & Headers Section */}
+            <div className="bg-gray-50 p-4 rounded-lg mb-6">
+              <h3 className="text-lg font-bold text-gray-900 mb-3">Advanced Protection Methods</h3>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-indigo-600">{summary.sitesWithNoAIMeta}</div>
+                  <div className="text-sm text-gray-600">NoAI Meta Tags</div>
+                  <div className="text-xs text-gray-500">{summary.percentageWithNoAIMeta}%</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-indigo-600">{summary.sitesWithNoImageAIMeta}</div>
+                  <div className="text-sm text-gray-600">NoImageAI Meta Tags</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-pink-600">{summary.sitesWithXRobotsNoAI}</div>
+                  <div className="text-sm text-gray-600">X-Robots NoAI Headers</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-pink-600">{summary.sitesWithXRobotsNoImageAI}</div>
+                  <div className="text-sm text-gray-600">X-Robots NoImageAI</div>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -375,6 +584,9 @@ const BotScannerPage = () => {
                                 <th className="px-4 py-3 text-left text-sm font-medium text-gray-900">Blocks AI</th>
                                 <th className="px-4 py-3 text-left text-sm font-medium text-gray-900">Strategy</th>
                                 <th className="px-4 py-3 text-left text-sm font-medium text-gray-900">Bot Count</th>
+                                <th className="px-4 py-3 text-left text-sm font-medium text-gray-900">Meta Tags</th>
+                                <th className="px-4 py-3 text-left text-sm font-medium text-gray-900">Headers</th>
+                                <th className="px-4 py-3 text-left text-sm font-medium text-gray-900">Protection Score</th>
                                 <th className="px-4 py-3 text-left text-sm font-medium text-gray-900">Blocked Bots</th>
                             </tr>
                         </thead>
@@ -405,6 +617,31 @@ const BotScannerPage = () => {
                                       </span>
                                     </td>
                                     <td className="px-4 py-3 text-sm text-gray-900 text-center">{result.aiBotsBlockedCount}</td>
+                                    <td className="px-4 py-3 text-sm">
+                                      <div className="flex flex-col gap-1">
+                                        {result.hasNoAIMetaTag && <span className="inline-flex px-2 py-1 text-xs bg-indigo-100 text-indigo-800 rounded">NoAI</span>}
+                                        {result.hasNoImageAIMetaTag && <span className="inline-flex px-2 py-1 text-xs bg-indigo-100 text-indigo-800 rounded">NoImageAI</span>}
+                                        {!result.hasNoAIMetaTag && !result.hasNoImageAIMetaTag && <span className="text-gray-500">-</span>}
+                                      </div>
+                                    </td>
+                                    <td className="px-4 py-3 text-sm">
+                                      <div className="flex flex-col gap-1">
+                                        {result.hasXRobotsNoAI && <span className="inline-flex px-2 py-1 text-xs bg-pink-100 text-pink-800 rounded">X-NoAI</span>}
+                                        {result.hasXRobotsNoImageAI && <span className="inline-flex px-2 py-1 text-xs bg-pink-100 text-pink-800 rounded">X-NoImageAI</span>}
+                                        {!result.hasXRobotsNoAI && !result.hasXRobotsNoImageAI && <span className="text-gray-500">-</span>}
+                                      </div>
+                                    </td>
+                                    <td className="px-4 py-3 text-sm">
+                                      <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                                        result.protectionScore >= 15 ? 'bg-red-100 text-red-800' :
+                                        result.protectionScore >= 8 ? 'bg-orange-100 text-orange-800' :
+                                        result.protectionScore >= 3 ? 'bg-yellow-100 text-yellow-800' :
+                                        result.protectionScore > 0 ? 'bg-blue-100 text-blue-800' :
+                                        'bg-gray-100 text-gray-800'
+                                      }`}>
+                                        {result.protectionScore}
+                                      </span>
+                                    </td>
                                     <td className="px-4 py-3 text-sm text-gray-600 max-w-xs truncate">
                                       {result.blockedBotsList.length > 0 ? result.blockedBotsList.slice(0, 3).join(', ') + (result.blockedBotsList.length > 3 ? '...' : '') : '-'}
                                     </td>
