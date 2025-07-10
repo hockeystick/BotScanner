@@ -210,7 +210,6 @@ const BotScannerPage = () => {
     setCountryStats(stats);
   };
 
-  // --- NEW DOWNLOAD FUNCTION ---
   const downloadResults = () => {
     if (results.length === 0) return;
 
@@ -299,7 +298,6 @@ const BotScannerPage = () => {
                   <button onClick={analyzeAllSites} disabled={!sites.length || analyzing} className="w-full sm:w-auto flex items-center justify-center gap-3 bg-green-500 text-white px-10 py-4 rounded-xl text-lg font-bold shadow-md hover:bg-green-600 transition-all duration-300 transform hover:scale-105 disabled:bg-gray-400 disabled:scale-100">
                       <Play size={24} /> {analyzing ? `Analyzing... ${Math.round(progress)}%` : 'Analyze All Sites'}
                   </button>
-                  {/* --- NEW DOWNLOAD BUTTON --- */}
                   {results.length > 0 && !analyzing && (
                     <button onClick={downloadResults} className="w-full sm:w-auto flex items-center justify-center gap-3 bg-blue-500 text-white px-10 py-4 rounded-xl text-lg font-bold shadow-md hover:bg-blue-600 transition-all duration-300 transform hover:scale-105">
                       <Download size={24} /> Download Results
@@ -308,6 +306,18 @@ const BotScannerPage = () => {
                 </div>
               </div>
               {analyzing && <div className="mt-4 w-full bg-gray-200 rounded-full h-2.5"><div className="bg-green-500 h-2.5 rounded-full" style={{ width: `${progress}%` }}></div></div>}
+              
+              {/* --- NEW CSV FORMAT GUIDE --- */}
+              <div className="mt-8 text-left text-sm text-gray-600 bg-gray-50 p-4 rounded-lg border border-gray-200">
+                <h4 className="font-semibold text-gray-800 mb-2">CSV Format Guide:</h4>
+                <p>Your CSV file must contain a header row. The tool uses the following columns:</p>
+                <ul className="list-disc list-inside mt-2 space-y-1">
+                  <li><code className="bg-gray-200 text-gray-900 px-1.5 py-0.5 rounded">Outlet</code>: The name of the website (e.g., The New York Times).</li>
+                  <li><code className="bg-gray-200 text-gray-900 px-1.5 py-0.5 rounded">Country</code>: The country of the outlet (e.g., USA).</li>
+                  <li><code className="bg-gray-200 text-gray-900 px-1.5 py-0.5 rounded">Robots.txt</code>: (Optional) A direct URL to the robots.txt file. If omitted, the tool will try <code className="bg-gray-200 text-gray-900 px-1.5 py-0.5 rounded">https://[Outlet]/robots.txt</code>.</li>
+                </ul>
+                <p className="mt-3"><b>Example line:</b> <code className="bg-gray-200 text-gray-900 px-1.5 py-0.5 rounded">"The Example Times","USA","https://www.example.com/robots.txt"</code></p>
+              </div>
             </div>
             
             {summary && (
@@ -402,6 +412,30 @@ const BotScannerPage = () => {
             )}
           </section>
         }
+
+        {/* --- NEW SUBSCRIBE SECTION --- */}
+        <section className="mt-16 text-center">
+          <div className="bg-white p-8 rounded-2xl shadow-lg border border-gray-200/80 inline-block max-w-full">
+            <h2 className="text-2xl font-bold text-gray-900 mb-4">Stay Updated</h2>
+            <p className="text-gray-600 mb-6">Subscribe for the latest analysis and tool updates.</p>
+            <iframe 
+              src="https://newstechnavigator.substack.com/embed" 
+              width="480" 
+              height="320" 
+              style={{ border: '1px solid #EEE', background: 'white', maxWidth: '100%' }}
+              frameBorder="0" 
+              scrolling="no">
+            </iframe>
+          </div>
+        </section>
+
+        {/* --- FOOTER WITH DISCLAIMER --- */}
+        <footer className="mt-16 pt-8 border-t border-gray-200 text-center text-sm text-gray-500">
+          <p>
+            Analysis is for informational purposes only, based on data at the time of the scan. Accuracy is not guaranteed.
+          </p>
+        </footer>
+
       </div>
     </div>
   );
