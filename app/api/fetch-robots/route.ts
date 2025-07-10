@@ -50,6 +50,6 @@ export async function GET(req: NextRequest) {
     console.error(`Proxy error for ${targetUrl}:`, error.message);
     const status = error.name === 'TimeoutError' ? 504 : 500;
     const message = error.name === 'TimeoutError' ? 'Gateway Timeout' : 'Internal Server Error';
-    return NextResponse.json({ error: message }, { status });
+    return NextResponse.json({ error: message, details: error.message }, { status });
   }
 }
