@@ -1,7 +1,8 @@
-// This is the correct content for app/layout.tsx
+// PASTE THIS ENTIRE CODE BLOCK INTO: app/layout.tsx
 
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
+import { Analytics } from "@vercel/analytics/react"; //  <-- IMPORT ADDED
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"] });
@@ -18,7 +19,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={inter.className}>{children}</body>
+      <body className={inter.className}>
+        {children}
+        <Analytics /> {/* <-- COMPONENT ADDED */}
+      </body>
     </html>
   );
 }
