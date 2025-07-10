@@ -1,8 +1,8 @@
-// PASTE THIS ENTIRE CODE BLOCK INTO: app/layout.tsx
+// PASTE THIS ENTIRE CODE BLOCK INTO: app/layout.tsx 
 
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
-import { Analytics } from "@vercel/analytics/react"; //  <-- IMPORT ADDED
+import { Analytics } from "@vercel/analytics/next"; // <-- This is the correct line from the image
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"] });
@@ -21,7 +21,7 @@ export default function RootLayout({
     <html lang="en">
       <body className={inter.className}>
         {children}
-        <Analytics /> {/* <-- COMPONENT ADDED */}
+        <Analytics /> 
       </body>
     </html>
   );
