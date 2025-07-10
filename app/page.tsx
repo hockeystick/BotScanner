@@ -307,7 +307,7 @@ const BotScannerPage = () => {
               </div>
               {analyzing && <div className="mt-4 w-full bg-gray-200 rounded-full h-2.5"><div className="bg-green-500 h-2.5 rounded-full" style={{ width: `${progress}%` }}></div></div>}
               
-              {/* --- NEW CSV FORMAT GUIDE --- */}
+              {/* --- CSV FORMAT GUIDE --- */}
               <div className="mt-8 text-left text-sm text-gray-600 bg-gray-50 p-4 rounded-lg border border-gray-200">
                 <h4 className="font-semibold text-gray-800 mb-2">CSV Format Guide:</h4>
                 <p>Your CSV file must contain a header row. The tool uses the following columns:</p>
@@ -413,7 +413,7 @@ const BotScannerPage = () => {
           </section>
         }
 
-        {/* --- NEW SUBSCRIBE SECTION --- */}
+        {/* --- SUBSCRIBE SECTION --- */}
         <section className="mt-16 text-center">
           <div className="bg-white p-8 rounded-2xl shadow-lg border border-gray-200/80 inline-block max-w-full">
             <h2 className="text-2xl font-bold text-gray-900 mb-4">Stay Updated</h2>
