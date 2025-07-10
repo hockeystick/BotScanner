@@ -11,6 +11,7 @@ type AnalysisResult = {
   country: string; outlet: string; robotsExists: boolean; blocksAI: boolean; aiBotsBlockedCount: number; blockingStrategy: string;
   blockedBotsList: string[]; fetchUrl?: string; hasNoAIMetaTag: boolean; hasNoImageAIMetaTag: boolean;
   hasXRobotsNoAI: boolean; hasXRobotsNoImageAI: boolean; protectionScore: number; homepageUrl?: string; homepageChecked: boolean;
+  robotsError?: string; pageError?: string;
 };
 
 // --- MAIN COMPONENT ---
@@ -78,7 +79,8 @@ const BotScannerPage = () => {
     const response = await fetch(proxyUrl);
     if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+        const detail = errorData.details ? ` - ${errorData.details}` : '';
+        throw new Error((errorData.error || `HTTP error! status: ${response.status}`) + detail);
     }
     return response.json();
   };
@@ -97,15 +99,15 @@ const BotScannerPage = () => {
       try {
         const robotsData = await fetchWithProxy(`${baseUrl}/robots.txt`, 'robots');
         analysis = { ...analysis, ...parseRobotsTxt(robotsData.content), fetchUrl: `${baseUrl}/robots.txt` };
-      } catch {
-        analysis = { ...analysis, robotsExists: false, blocksAI: false, aiBotsBlockedCount: 0, blockingStrategy: 'None', blockedBotsList: [] };
+      } catch (e: any) {
+        analysis = { ...analysis, robotsExists: false, blocksAI: false, aiBotsBlockedCount: 0, blockingStrategy: 'None', blockedBotsList: [], robotsError: e.message };
       }
 
       try {
         const pageData = await fetchWithProxy(baseUrl, 'page');
         analysis = { ...analysis, ...parseMetaAndHeaders(pageData), homepageUrl: baseUrl, homepageChecked: true };
-      } catch {
-        analysis = { ...analysis, hasNoAIMetaTag: false, hasNoImageAIMetaTag: false, hasXRobotsNoAI: false, hasXRobotsNoImageAI: false, homepageChecked: false };
+      } catch (e: any) {
+        analysis = { ...analysis, hasNoAIMetaTag: false, hasNoImageAIMetaTag: false, hasXRobotsNoAI: false, hasXRobotsNoImageAI: false, homepageChecked: false, pageError: e.message };
       }
 
       analysis.protectionScore = calculateProtectionScore(analysis as Omit<AnalysisResult, 'protectionScore'>);
@@ -215,7 +217,8 @@ const BotScannerPage = () => {
 
     const headers = [
       'Country', 'Outlet', 'Protection_Score', 'Blocks_AI_RobotsTxt', 'Robots.txt_Bots_Blocked',
-      'Robots.txt_Strategy', 'Has_NoAI_Meta_Tag', 'Has_XRobots_NoAI_Header', 'Blocked_Bots_List', 'Robots_txt_URL'
+      'Robots.txt_Strategy', 'Has_NoAI_Meta_Tag', 'Has_XRobots_NoAI_Header', 'Blocked_Bots_List', 'Robots_txt_URL',
+      'Robots_Error', 'Page_Error'
     ];
 
     const formatField = (field: any) => {
@@ -238,7 +241,9 @@ const BotScannerPage = () => {
         formatField(r.hasNoAIMetaTag),
         formatField(r.hasXRobotsNoAI),
         formatField(r.blockedBotsList.join('; ')),
-        formatField(r.fetchUrl)
+        formatField(r.fetchUrl),
+        formatField(r.robotsError),
+        formatField(r.pageError)
       ].join(','))
     ].join('\n');
 
@@ -360,8 +365,19 @@ const BotScannerPage = () => {
                 <div className="bg-white rounded-2xl shadow-lg border border-gray-200/80 overflow-hidden">
                   <h2 className="text-2xl font-bold text-gray-900 p-6">Detailed Results by Outlet</h2>
                   <div className="overflow-x-auto"><table className="w-full text-sm">
-                    <thead className="bg-gray-50"><tr>{['Country', 'Outlet', 'Robots.txt', 'Blocks AI', 'Strategy', 'Bot Count', 'Blocked Bots'].map(h => <th key={h} className="px-6 py-4 text-left font-bold text-gray-600 uppercase tracking-wider">{h}</th>)}</tr></thead>
-                    <tbody className="divide-y divide-gray-200">{results.map((r, i) => (<tr key={i} className="hover:bg-gray-50"><td className="px-6 py-4">{r.country}</td><td className="px-6 py-4 font-medium">{r.outlet}</td><td className="px-6 py-4">{r.robotsExists ? <a href={r.fetchUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline flex items-center gap-1"><LinkIcon size={14}/>Yes</a> : <span>No</span>}</td><td className="px-6 py-4"><span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${r.blocksAI ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'}`}>{r.blocksAI ? 'Yes' : 'No'}</span></td><td className="px-6 py-4"><span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${strategyColors[r.blockingStrategy]}`}>{r.blockingStrategy}</span></td><td className="px-6 py-4 text-center">{r.aiBotsBlockedCount}</td><td className="px-6 py-4 max-w-xs truncate">{r.blockedBotsList.length > 0 ? r.blockedBotsList.slice(0,3).join(', ') + (r.blockedBotsList.length > 3 ? '...' : '') : '-'}</td></tr>))}</tbody>
+                    <thead className="bg-gray-50"><tr>{['Country', 'Outlet', 'Robots.txt', 'Blocks AI', 'Strategy', 'Bot Count', 'Blocked Bots', 'Errors'].map(h => <th key={h} className="px-6 py-4 text-left font-bold text-gray-600 uppercase tracking-wider">{h}</th>)}</tr></thead>
+                    <tbody className="divide-y divide-gray-200">{results.map((r, i) => (
+                      <tr key={i} className="hover:bg-gray-50">
+                        <td className="px-6 py-4">{r.country}</td>
+                        <td className="px-6 py-4 font-medium">{r.outlet}</td>
+                        <td className="px-6 py-4">{r.robotsExists ? <a href={r.fetchUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline flex items-center gap-1"><LinkIcon size={14}/>Yes</a> : <span>No</span>}</td>
+                        <td className="px-6 py-4"><span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${r.blocksAI ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'}`}>{r.blocksAI ? 'Yes' : 'No'}</span></td>
+                        <td className="px-6 py-4"><span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${strategyColors[r.blockingStrategy]}`}>{r.blockingStrategy}</span></td>
+                        <td className="px-6 py-4 text-center">{r.aiBotsBlockedCount}</td>
+                        <td className="px-6 py-4 max-w-xs truncate">{r.blockedBotsList.length > 0 ? r.blockedBotsList.slice(0,3).join(', ') + (r.blockedBotsList.length > 3 ? '...' : '') : '-'}</td>
+                        <td className="px-6 py-4 text-red-600 max-w-xs truncate">{r.robotsError || r.pageError ? `${r.robotsError ? `Robots: ${r.robotsError}` : ''}${r.robotsError && r.pageError ? '; ' : ''}${r.pageError ? `Page: ${r.pageError}` : ''}` : '-'}</td>
+                      </tr>
+                    ))}</tbody>
                   </table></div>
                 </div>
               </>
@@ -408,6 +424,12 @@ const BotScannerPage = () => {
                     ) : <p className="text-gray-500">None</p>}
                   </div>
                 </div>
+                {(singleResult.robotsError || singleResult.pageError) && (
+                  <div className="p-6 border-t text-sm text-red-600 space-y-1">
+                    {singleResult.robotsError && <p>Robots.txt error: {singleResult.robotsError}</p>}
+                    {singleResult.pageError && <p>Page error: {singleResult.pageError}</p>}
+                  </div>
+                )}
               </div>
             )}
           </section>
